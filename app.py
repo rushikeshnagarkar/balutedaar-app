@@ -651,7 +651,20 @@ def Get_Message():
 
         print(f"Received response: {response}")
         frm = str(response["messages"][0]["from"])
-        msg_type = str(response["messages"][0]["type"])
+        # msg_type = str(response["messages"][0]["type"])
+        frm = response["messages"][0]["from"]
+        msg_type = response["messages"][0]["type"]
+        print(f"[DEBUG] Message from: {frm}, type: {msg_type}")
+
+        if msg_type == "interactive":
+            interactive_data = response["messages"][0]["interactive"]
+            if "button_reply" in interactive_data:
+                resp1 = interactive_data["button_reply"]["id"]
+            elif "list_reply" in interactive_data:
+                resp1 = interactive_data["list_reply"]["id"]
+            else:
+                resp1 = ""
+            return "Success", 200
         print(f"Message from: {frm}, Type: {msg_type}")
 
         if msg_type == 'text':
