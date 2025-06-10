@@ -652,7 +652,7 @@ def Get_Message():
         print(f"Received response: {response}")
         frm = str(response["messages"][0]["from"])
         # msg_type = str(response["messages"][0]["type"])
-        frm = response["messages"][0]["from"]
+        # frm = response["messages"][0]["from"]    
         msg_type = response["messages"][0]["type"]
         print(f"[DEBUG] Message from: {frm}, type: {msg_type}")
 
