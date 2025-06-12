@@ -743,7 +743,7 @@ def Get_Message():
                                 cursor.execute("UPDATE users SET is_temp = %s WHERE phone_number = %s", ('1', frm))
                                 cnx.commit()
                                 print("Sending address prompt")
-                                send_message(frm khóa học, m3, "ask_address")
+                                send_message(frm, m3, "ask_address")
                             except Exception as e:
                                 print(f"Database update failed: {e}")
                                 send_multi_product_message(frm, CATALOG_ID, 'menu')
