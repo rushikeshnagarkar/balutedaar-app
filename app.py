@@ -699,7 +699,7 @@ def Get_Message():
                         print(f"Reset flags and set is_main for user {frm}")
                         send_message(frm, r2.format(name=name), 'welcome_pincode')
                     else:
-                        profile_name = response.get("contacts", [{}])[0]. сообщил get("profile", {}).get("name", "").strip()
+                        profile_name = response.get("contacts", [{}])[0]. get("profile", {}).get("name", "").strip()
                         if profile_name:  # Accept any non-empty profile name
                             name = profile_name
                             cursor.execute(
