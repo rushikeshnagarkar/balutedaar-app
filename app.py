@@ -1,4 +1,3 @@
-
 from flask import Flask, jsonify, request
 import requests
 import json
@@ -8,9 +7,9 @@ import urllib3
 import re
 import os
 import razorpay
+import uuid
+import logging
 from dotenv import load_dotenv
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -31,7 +30,6 @@ razorpay_client = razorpay.Client(auth=(
     os.getenv("RAZORPAY_KEY_ID"),
     os.getenv("RAZORPAY_KEY_SECRET")
 ))
-
 
 # Greeting words
 greeting_word = ['Hi', 'hi', 'HI', 'Hii', 'hii', 'HII', 'Hello', 'hello', 'HELLO', 'Welcome', 'welcome', 'WELCOME', 'Hey', 'hey', 'HEY']
@@ -174,7 +172,7 @@ def interactive_template_with_2button(rcvr, body, message):
         savesentlog(rcvr, response.text, response.status_code, "order_summary")
         return response.text
     except requests.RequestException as e:
-        print(f"Interactive 2-button failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
+        print(f"Interactive 2-button failed: {e}, Response: {str(e)}")
         return None
 
 def interactive_template_with_3button(frm, body, message):
@@ -229,7 +227,7 @@ def interactive_template_with_3button(frm, body, message):
         savesentlog(frm, response.text, response.status_code, message)
         return response.text
     except requests.RequestException as e:
-        print(f"Interactive 3-button failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
+        print(f"Interactive 3-button failed: {e}, Response: {str(e)}")
         return None
 
 def send_multi_product_message(rcvr, CATALOG_ID, message):
@@ -286,9 +284,8 @@ def send_multi_product_message(rcvr, CATALOG_ID, message):
 def send_payment_message(frm, name, address, pincode, items, order_amount, reference_id):
     try:
         print(f"Creating Razorpay payment link for user {frm}, amount: {order_amount}, reference_id: {reference_id}")
-        # Create Razorpay payment link
         payment_link_data = {
-            "amount": int(order_amount * 100),  # Convert to paise
+            "amount": int(order_amount * 100),
             "currency": "INR",
             "accept_partial": False,
             "description": "Balutedaar Vegetable Combo Order",
@@ -310,7 +307,6 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
         payment_url = payment_link.get("short_url", "")
         print(f"Razorpay payment link created: {payment_url}")
 
-        # Prepare WhatsApp message
         message = (
             f"Dear *{name}*,\n\nPlease complete your payment of ₹{order_amount:.2f} for your Balutedaar order.\n\n"
             f"📦 Order Details:\n"
@@ -323,7 +319,6 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
         message += f"Click here to pay: {payment_url}\n\n"
         message += "Complete the payment to confirm your order!"
 
-        # Send via Route Mobile WhatsApp API
         url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
         payload = json.dumps({
             "phone": frm if frm.startswith('+') else f"+91{frm[-10:]}",
@@ -349,31 +344,25 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
 def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, reference_id=None):
     try:
         print(f"Starting checkout for user {rcvr}, payment_method: {payment_method}, reference_id: {reference_id}")
-        
-        # Validate user data from users table
-        print(f"Fetching user data for {rcvr}")
         cursor.execute("SELECT name, address, pincode FROM users WHERE phone_number = %s", (rcvr,))
         user_data = cursor.fetchone()
         print(f"User data: {user_data}")
-        if not user_data or not all(user_data[:3]):  # Check name, address, pincode
+        if not user_data or not all(user_data[:3]):
             print(f"Checkout failed: Incomplete user data for {rcvr}, user_data: {user_data}")
             return {"total": 0, "message": "Error: User data incomplete. Please provide name, address, and pincode."}
-        
-        # Get cart items
+
         cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (rcvr,))
         cart_items = cursor.fetchall()
         print(f"Cart items: {cart_items}")
         if not cart_items:
             print(f"Checkout failed: No cart items for {rcvr}")
             return {"total": 0, "message": "Error: No valid order details found. Please select a combo."}
-        
+
         total = 0
         for item in cart_items:
             combo_id, combo_name, quantity, price = item
             subtotal = float(price) * quantity
             total += subtotal
-            
-            # Insert order into orders table
             print(f"Inserting order: {combo_name} x{quantity}, price: {price}, total: {subtotal}, reference_id: {reference_id}")
             cursor.execute(
                 "INSERT INTO orders (user_phone, customer_name, address, pincode, combo_id, combo_name, price, quantity, total_amount, payment_method, payment_status, order_status, reference_id) "
@@ -381,8 +370,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
                 (rcvr, name, address, pincode, combo_id, combo_name, float(price), quantity, subtotal, payment_method,
                  'Pending' if payment_method != 'COD' else 'Completed', 'Placed', reference_id)
             )
-        
-        # Log inserted orders for debugging
+
         cursor.execute(
             "SELECT id, combo_id, combo_name, quantity, price, total_amount, payment_method, order_status, created_at "
             "FROM orders WHERE user_phone = %s AND payment_method = %s",
@@ -390,13 +378,9 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
         )
         inserted_orders = cursor.fetchall()
         print(f"Inserted orders for {rcvr}: {inserted_orders}")
-        
-        # Clear cart
+
         cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (rcvr,))
-        
-        # Clear pincode from users table
         cursor.execute("UPDATE users SET pincode = NULL WHERE phone_number = %s", (rcvr,))
-        
         cnx.commit()
         print(f"Checkout completed successfully for {rcvr}, total: ₹{total:.2f}")
         return {
@@ -422,13 +406,11 @@ def check_pincode(pincode):
 
 def get_combo_price(combo_id):
     try:
-        # Check FALLBACK_COMBOS first
         if combo_id in FALLBACK_COMBOS:
             price = float(FALLBACK_COMBOS[combo_id].get("price", 0))
             print(f"Price for combo_id {combo_id} from FALLBACK_COMBOS: {price}")
             return price
-        
-        # Fallback to combos table if combo_id not in FALLBACK_COMBOS
+
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
         cursor.execute("SELECT price FROM combos WHERE combo_id = %s", (combo_id,))
@@ -438,13 +420,11 @@ def get_combo_price(combo_id):
             price = float(result[0])
             print(f"Price for combo_id {combo_id} from combos table: {price}")
             return price
-        
-        # If not in combos table, return 0
+
         print(f"Price for combo_id {combo_id} not found in FALLBACK_COMBOS or combos table, returning 0")
         return 0
     except Exception as e:
         print(f"Failed to fetch price for combo_id {combo_id}: {e}")
-        # On error, try FALLBACK_COMBOS as final fallback
         price = float(FALLBACK_COMBOS.get(combo_id, {}).get("price", 0))
         print(f"Price for combo_id {combo_id} from FALLBACK_COMBOS (error fallback): {price}")
         return price
@@ -607,21 +587,20 @@ def Get_Message():
 
         if (msg_type == 'text' or msg_type == 'interactive' or msg_type == 'order') and len(frm) == 12:
             if resp1 in greeting_word:
-                if result is None:  # New user
+                if result is None:
                     cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", (frm, '1', '1', '1'))
                     cnx.commit()
                     print('Inserted new user successfully')
                     send_message(frm, wl, 'welcome message')
-                else:  # Existing user
+                else:
                     print(f"Existing user {frm} detected, name: {name}")
-                    if name:  # If name exists in database
-                        reset_user_flags(frm, cnx, cursor)  # Reset order-related flags, cart, and pincode
+                    if name:
+                        reset_user_flags(frm, cnx, cursor)
                         cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         print(f"Reset flags and set is_main for user {frm}")
-                        send_message(frm, r2.format(name=name), 'pincode')  # Send pincode prompt with name
+                        send_message(frm, r2.format(name=name), 'pincode')
                     else:
-                        # In case name is missing (edge case), ask for name
                         cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         send_message(frm, wl, 'welcome message')
@@ -653,7 +632,6 @@ def Get_Message():
                     else:
                         send_message(frm, r4, 'invalid_pincode')
                 
-                # Address input block
                 if is_temp == '1' and address is None:
                     print(f"Processing address input: {resp1}")
                     if is_valid_address(resp1):
@@ -661,7 +639,6 @@ def Get_Message():
                         cursor.execute("UPDATE users SET address = %s, is_submenu = %s WHERE phone_number = %s", (address, '1', frm))
                         cnx.commit()
                         
-                        # Generate order summary from user_cart table
                         order_summary, total, item_count = get_cart_summary(frm, name, address)
                         if item_count == 0:
                             send_message(frm, order_summary, "no_order")
@@ -674,7 +651,6 @@ def Get_Message():
                         print(f"Invalid address attempt: {resp1} from {frm}")
                         send_message(frm, invalid_address, 'invalid_address')
                 
-                # Product selection block
                 elif main_menu == '1' and msg_type == 'order':
                     print("Entering product selection block")
                     if 'product_items' in response["messages"][0]["order"]:
@@ -684,17 +660,15 @@ def Get_Message():
                         total_amount = 0
                         valid_selection = False
                         
-                        # Clear existing cart items for this user
                         cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         
-                        # Log selected items
                         print(f"Selected product items: {product_items}")
                         
                         for item in product_items:
                             combo_id = item.get("product_retailer_id", "").strip()
                             quantity = int(item.get("quantity", 1))
-                            item_price = get_combo_price(combo_id)  # Use updated get_combo_price
+                            item_price = get_combo_price(combo_id)
                             selected_combo = get_combo_name(combo_id)
                             print(f"Processing combo_id: {combo_id}, name: {selected_combo}, quantity: {quantity}, price: {item_price}")
                             
@@ -730,12 +704,12 @@ def Get_Message():
                 
                 elif is_submenu == '1' and payment_method is None:
                     print(f"Processing submenu input: {resp1}")
-                    if resp1 == "1":  # Confirm
+                    if resp1 == "1":
                         print("User confirmed order, sending payment options")
                         cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         interactive_template_with_3button(frm, "💳 Please select your preferred payment method to continue:", "payment")
-                    elif resp1 == "2":  # Main Menu
+                    elif resp1 == "2":
                         print("User selected Main Menu, resetting flags")
                         reset_user_flags(frm, cnx, cursor)
                         cursor.execute("UPDATE users SET main_menu = '1' WHERE phone_number = %s", (frm,))
@@ -747,7 +721,6 @@ def Get_Message():
                             print(f"User selected payment method: {payment_method}")
                             cursor.execute("UPDATE users SET payment_method = %s WHERE phone_number = %s", (payment_method, frm))
                             cnx.commit()
-                            # Fetch cart items
                             cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (frm,))
                             cart_items = cursor.fetchall()
                             print(f"Cart items for checkout: {cart_items}")
@@ -759,8 +732,8 @@ def Get_Message():
                                 cnx.close()
                                 return 'Success'
                             
-                            total_amount = sum(float(item[3]) * item[2] for item in cart_items)  # price * quantity
-                            items = [(item[0], item[1], float(item[3]), item[2]) for item in cart_items]  # (combo_id, combo_name, price, quantity)
+                            total_amount = sum(float(item[3]) * item[2] for item in cart_items)
+                            items = [(item[0], item[1], float(item[3]), item[2]) for item in cart_items]
                             
                             if payment_method == "COD":
                                 print(f"Processing COD checkout for user {frm}")
@@ -773,7 +746,6 @@ def Get_Message():
                                     cnx.close()
                                     return 'Success'
                                 
-                                # Debug: Check orders table before confirmation query
                                 cursor.execute(
                                     "SELECT id, combo_id, combo_name, quantity, price, total_amount, payment_method, order_status, created_at "
                                     "FROM orders WHERE user_phone = %s",
@@ -782,7 +754,6 @@ def Get_Message():
                                 all_orders = cursor.fetchall()
                                 print(f"All orders for {frm} before confirmation: {all_orders}")
                                 
-                                # Generate final confirmation from orders
                                 cursor.execute(
                                     "SELECT combo_id, combo_name, price, quantity, total_amount, address "
                                     "FROM orders WHERE user_phone = %s AND payment_method = 'COD' AND order_status = 'Placed' "
@@ -792,7 +763,6 @@ def Get_Message():
                                 items = cursor.fetchall()
                                 print(f"Orders for confirmation: {items}")
                                 if not items:
-                                    # Fallback query to diagnose
                                     cursor.execute(
                                         "SELECT combo_id, combo_name, price, quantity, total_amount, address, payment_method, order_status "
                                         "FROM orders WHERE user_phone = %s ORDER BY created_at DESC",
@@ -829,7 +799,6 @@ def Get_Message():
                                 reference_id = f"q9{uuid.uuid4().hex[:8]}"
                                 print(f"Generated reference_id: {reference_id}")
                                 
-                                # Run checkout to move order to orders table
                                 print(f"Calling checkout for Pay Now, user: {frm}")
                                 checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
                                 if checkout_result["total"] == 0:
@@ -840,7 +809,6 @@ def Get_Message():
                                     cnx.close()
                                     return 'Success'
                                 
-                                # Send Razorpay payment link
                                 print(f"Sending payment link for user {frm}")
                                 payment_url = send_payment_message(frm, name, address, pincode, items, total_amount, reference_id)
                                 if not payment_url:
@@ -885,7 +853,6 @@ def payment_callback():
                     "razorpay_payment_id": payment_id,
                     "razorpay_signature": signature
                 })
-                # Update order status in database
                 cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
                 cursor = cnx.cursor()
                 cursor.execute(
@@ -899,7 +866,6 @@ def payment_callback():
                 )
                 items = cursor.fetchall()
                 
-                # Clear pincode from users table
                 if items:
                     frm = items[0][0]
                     cursor.execute("UPDATE users SET pincode = NULL WHERE phone_number = %s", (frm,))
