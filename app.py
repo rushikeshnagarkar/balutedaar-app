@@ -8,8 +8,8 @@ import re
 import os
 import razorpay
 import uuid
-import logging import logger
-from dotenv import logging
+import logging
+from dotenv import load_dotenv
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
