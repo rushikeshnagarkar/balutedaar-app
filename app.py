@@ -603,6 +603,8 @@ def interactive_template_with_address_buttons(rcvr, body, message):
         logging.error(f"Interactive address buttons failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
         return None
 
+# ... (Previous imports, setup, and other functions remain unchanged)
+
 @app.route('/', methods=['POST', 'GET'])
 def Get_Message():
     cnx = None
@@ -691,7 +693,7 @@ def Get_Message():
                         print(f"Inserted new user {frm}, no profile name, asking for name")
                         send_message(frm, wl_fallback, 'welcome_message')
                 else:  # Existing user
-                    print: (f"Existing user {frm} detected, name: {name}")
+                    print(f"Existing user {frm} detected, name: {name}")  # Fixed syntax error
                     if name:
                         reset_user_flags(frm, cnx, cursor)
                         cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
@@ -699,7 +701,7 @@ def Get_Message():
                         print(f"Reset flags and set is_main for user {frm}")
                         send_message(frm, r2.format(name=name), 'welcome_pincode')
                     else:
-                        profile_name = response.get("contacts", [{}])[0]. get("profile", {}).get("name", "").strip()
+                        profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
                         if profile_name:  # Accept any non-empty profile name
                             name = profile_name
                             cursor.execute(
@@ -757,7 +759,6 @@ def Get_Message():
                             send_message(frm, order_summary, "no_order")
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
                         else:
-
                             order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
                             print("Sending order confirmation with buttons")
                             interactive_template_with_2button(frm, order_summary, "order_summary")
@@ -867,7 +868,7 @@ def Get_Message():
                         payment_method = {"3": "COD", "5": "Pay Now"}.get(resp1)
                         if payment_method:
                             print(f"User selected payment method: {payment_method}")
-                            cursor.execute("UPDATE users SET payment_method = %s WHERE phone_number = %s", (payment_method, frm))
+                            cursor.execute("UPDATE users SET payment_method = %s WHERE phone_number = %s", (payment_method, frm tilf
                             cnx.commit()
                             cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (frm,))
                             cart_items = cursor.fetchall()
@@ -945,7 +946,6 @@ def Get_Message():
                                 reference_id = f"q9{uuid.uuid4().hex[:8]}"
                                 print(f"Generated reference_id: {reference_id}")
                                 
-                                checkoutmedia_id = reference_id
                                 checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
                                 if checkout_result["total"] == 0:
                                     print(f"Checkout failed for user {frm}: {checkout_result['message']}")
@@ -979,6 +979,8 @@ def Get_Message():
         if cnx:
             cnx.close()
         return 'Success'
+
+# ... (Rest of the code, including interactive_template_with_address_buttons and other functions, remains unchanged)
 
 # ... (Rest of the code remains unchanged)
 
