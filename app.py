@@ -57,6 +57,22 @@ Here’s why you’ll love us:
 🌟 *A small step towards fresh, sustainable, and empowering food for your loved ones!* 🇮🇳
 
 Let’s get started – please enter your *Name* to order. 👇'''
+wl_fallback = '''Ram Ram Mandali 🙏
+
+🌟 *Welcome to Balutedaar!* 🌿🥦
+
+We bring you *Farm-Fresh Vegetable Boxes* handpicked with love by rural mothers, curated for urban families like yours! 💚
+
+Here’s why you’ll love us:  
+👩‍🌾 *Fresh from Mother Earth* – Pure, healthy veggies for your family.  
+🌍 *Eco-Friendly* – Low carbon footprint for a greener planet.  
+💸 *Support Farmers Directly* – Your purchase empowers farmers with fair earnings.  
+👩‍💼 *Empower Rural Women* – Create jobs for hardworking women in villages.  
+🌱 *Your Choice, Your Way* – Pick what’s best for your family, we’ll deliver!
+
+🌟 *A small step towards fresh, sustainable, and empowering food for your loved ones!* 🇮🇳
+
+Let’s get started – please enter your *Name* to order. 👇'''
 r2 = '''*Hi {name}!* 👋  
 Please enter your *6-digit pincode* to continue. 📍'''
 r3 = '''*Sorry, this pincode is not served yet!* 😔  
@@ -281,66 +297,6 @@ def send_multi_product_message(rcvr, CATALOG_ID, message):
         print(f"Multi-product message failed: {e}")
         return None
 
-# def send_payment_message(frm, name, address, pincode, items, order_amount, reference_id):
-#     try:
-#         print(f"Creating Razorpay payment link for user {frm}, amount: {order_amount}, reference_id: {reference_id}")
-#         payment_link_data = {
-#             "amount": int(order_amount * 100),
-#             "currency": "INR",
-#             "accept_partial": False,
-#             "description": "Balutedaar Vegetable Combo Order",
-#             "customer": {
-#                 "name": name,
-#                 "contact": frm if frm.startswith('+') else f"+91{frm[-10:]}"
-#             },
-#             "notify": {
-#                 "sms": True,
-#                 "whatsapp": True
-#             },
-#             "reminder_enable": True,
-#             "reference_id": reference_id,
-#             "callback_url": "http://13.202.207.66:5000/payment-callback",
-#             "callback_method": "get"
-#         }
-#         print(f"Razorpay payment link data: {payment_link_data}")
-#         payment_link = razorpay_client.payment_link.create(payment_link_data)
-#         payment_url = payment_link.get("short_url", "")
-#         print(f"Razorpay payment link created: {payment_url}")
-
-#         message = (
-#             f"Dear *{name}*,\n\nPlease complete your payment of ₹{order_amount:.2f} for your Balutedaar order.\n\n"
-#             f"📦 Order Details:\n"
-#         )
-#         for item in items:
-#             combo_id, combo_name, price, quantity = item
-#             subtotal = float(price) * quantity
-#             message += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
-#         message += f"\n💰 Total: ₹{order_amount:.2f}\n📍 Delivery Address: {address}\n\n"
-#         message += f"Click here to pay: {payment_url}\n\n"
-#         message += "Complete the payment to confirm your order!"
-
-#         url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-#         payload = json.dumps({
-#             "phone": frm if frm.startswith('+') else f"+91{frm[-10:]}",
-#             "text": message,
-#             "enable_acculync": True,
-#             "extra": "payment_link"
-#         })
-#         headers = {
-#             'Content-Type': "application/json",
-#             'Authorization': authkey,
-#             'referer': 'myaccount.rmlconnect.net'
-#         }
-#         print(f"Sending WhatsApp message to {frm}, payload: {payload}")
-#         response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
-#         response.raise_for_status()
-#         print(f"WhatsApp message sent, response: {response.text}")
-#         savesentlog(frm, response.text, response.status_code, "payment_link")
-#         return payment_url
-#     except Exception as e:
-#         print(f"Failed to send payment message for user {frm}: {str(e)}")
-#         return None
-
 def send_payment_message(frm, name, address, pincode, items, order_amount, reference_id):
     try:
         print(f"Creating Razorpay payment link for user {frm}, amount: {order_amount}, reference_id: {reference_id}")
@@ -364,7 +320,6 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
         }
         print(f"Razorpay payment link data: {payment_link_data}")
         
-        # Verify payment_link attribute exists
         if not hasattr(razorpay_client, 'payment_link'):
             raise AttributeError("Razorpay client does not support payment_link. Please upgrade the razorpay library.")
         
@@ -433,11 +388,11 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
             combo_id, combo_name, quantity, price = item
             subtotal = float(price) * quantity
             total += subtotal
-            print(f"Inserting order: {combo_name} x{quantity}, price: {price}, total: {subtotal}, reference_id: {reference_id}")
+            print(f"Inserting order: {combo_name} x{quantity}, total: {subtotal}, price={price}")
             cursor.execute(
-                "INSERT INTO orders (user_phone, customer_name, address, pincode, combo_id, combo_name, price, quantity, total_amount, payment_method, payment_status, order_status, reference_id) "
+                "INSERT INTO orders (user_phone, customer_name, combo_id, combo_name, price, quantity, total_amount, address, pincode, payment_method, payment_status, order_status, reference_id) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (rcvr, name, address, pincode, combo_id, combo_name, float(price), quantity, subtotal, payment_method,
+                (rcvr, name, combo_id, combo_name, float(price), quantity, subtotal, address, pincode, payment_method,
                  'Pending' if payment_method != 'COD' else 'Completed', 'Placed', reference_id)
             )
 
@@ -657,12 +612,24 @@ def Get_Message():
 
         if (msg_type == 'text' or msg_type == 'interactive' or msg_type == 'order') and len(frm) == 12:
             if resp1 in greeting_word:
-                if result is None:
-                    cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", (frm, '1', '1', '1'))
-                    cnx.commit()
-                    print('Inserted new user successfully')
-                    send_message(frm, wl, 'welcome message')
-                else:
+                if result is None:  # New user
+                    profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
+                    if profile_name and is_valid_name(profile_name):
+                        name = profile_name
+                        cursor.execute(
+                            "INSERT INTO users (phone_number, camp_id, is_valid, name, is_main) VALUES (%s, %s, %s, %s, %s)",
+                            (frm, '1', '1', name, '1')
+                        )
+                        cnx.commit()
+                        print(f"Inserted new user {frm} with WhatsApp profile name: {name}")
+                        send_message(frm, r2.format(name=name), 'pincode')
+                    else:
+                        cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", 
+                                      (frm, '1', '1', '1'))
+                        cnx.commit()
+                        print(f"Inserted new user {frm}, no valid profile name, asking for name")
+                        send_message(frm, wl_fallback, 'welcome message')
+                else:  # Existing user
                     print(f"Existing user {frm} detected, name: {name}")
                     if name:
                         reset_user_flags(frm, cnx, cursor)
@@ -671,19 +638,31 @@ def Get_Message():
                         print(f"Reset flags and set is_main for user {frm}")
                         send_message(frm, r2.format(name=name), 'pincode')
                     else:
-                        cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        send_message(frm, wl, 'welcome message')
+                        profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
+                        if profile_name and is_valid_name(profile_name):
+                            name = profile_name
+                            cursor.execute(
+                                "UPDATE users SET name = %s, is_main = '1', is_valid = '1' WHERE phone_number = %s",
+                                (name, frm)
+                            )
+                            cnx.commit()
+                            print(f"Updated user {frm} with WhatsApp profile name: {name}")
+                            send_message(frm, r2.format(name=name), 'pincode')
+                        else:
+                            cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                            cnx.commit()
+                            send_message(frm, wl_fallback, 'welcome message')
 
             if camp_id == '1':
                 if is_info == '1' and pincode is None:
-                    if all(x.isalpha() or x.isspace() for x in resp1) and is_valid_name(resp1):
+                    if is_valid_name(resp1):
                         print("Accepting name")
                         name = resp1
-                        cursor.execute("UPDATE users SET name = %s, is_main = %s, is_info = %s WHERE phone_number = %s", (name, '1', '0', frm))
+                        cursor.execute("UPDATE users SET name = %s, is_main = %s, is_info = %s WHERE phone_number = %s", 
+                                      (name, '1', '0', frm))
                         cnx.commit()
                         send_message(frm, r2.format(name=name), 'pincode')
-                        print('Pincode Msg Delivered Successfully.......')
+                        print('Pincode Msg Delivered Successfully')
                     else:
                         send_message(frm, invalid_name, "invalid_name")    
                 
@@ -692,7 +671,8 @@ def Get_Message():
                     print(f'Processing pincode: {pincode}')
                     if pincode.isdigit() and len(pincode) == 6:
                         if check_pincode(pincode):
-                            cursor.execute("UPDATE users SET pincode = %s, main_menu = %s, is_main = %s WHERE phone_number = %s", (pincode, '1', '0', frm))
+                            cursor.execute("UPDATE users SET pincode = %s, main_menu = %s, is_main = %s WHERE phone_number = %s", 
+                                          (pincode, '1', '0', frm))
                             cnx.commit()
                             print('Calling send_multi_product_message')
                             result = send_multi_product_message(frm, CATALOG_ID, 'menu')
@@ -706,7 +686,8 @@ def Get_Message():
                     print(f"Processing address input: {resp1}")
                     if is_valid_address(resp1):
                         address = resp1 
-                        cursor.execute("UPDATE users SET address = %s, is_submenu = %s WHERE phone_number = %s", (address, '1', frm))
+                        cursor.execute("UPDATE users SET address = %s, is_submenu = %s WHERE phone_number = %s", 
+                                      (address, '1', frm))
                         cnx.commit()
                         
                         order_summary, total, item_count = get_cart_summary(frm, name, address)
@@ -916,7 +897,7 @@ def payment_callback():
 
         if payment_link_status == 'paid':
             try:
-                razorpay_client.utility.verify_payment_link_signature({
+                razorpay_client.utility.verify_payment_link({
                     "payment_link_id": payment_link_id,
                     "payment_link_reference_id": payment_link_reference_id,
                     "payment_link_status": payment_link_status,
@@ -946,31 +927,32 @@ def payment_callback():
                 if items:
                     frm, name, address, pincode = items[0][0:4]
                     total = items[0][8]
-                    confirmation = f"Dear *{name}*,\n\nThank you for your payment! Your order is confirmed:\n\n📦 *Order Details*:\n"
+                    confirmation = f"Dear *{name}*,\n\nThank you for your payment! Your order has been confirmed:\n\n📦 *Order Details*:\n"
                     for item in items:
                         combo_name, price, quantity = item[5:8]
                         subtotal = float(price) * quantity
-                        confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+                        confirmation += f"🛒 {combo_name} x{quantity}x: ₹{subtotal:.2f}\n"
                     confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
-                    confirmation += f"🚚 *Delivery Schedule*: Your order will be delivered by tomorrow 9 AM.\n\n"
-                    confirmation += f"We appreciate your support for fresh, sustainable produce!\n\nBest regards,\nThe Balutedaar Team"
+                    confirmation += f"🚚 *Delivery: Your order will be delivered by tomorrow 9 AM.\n"
+                    confirmation += f"\n"
+                    confirmation += "We appreciate your support for fresh, sustainable produce!\n\nBest regards,\n"
                     send_message(frm, confirmation, "payment_confirmation")
                 return "Payment successful! Your order is confirmed."
             except Exception as e:
                 print(f"Payment verification failed: {e}")
-                return "Payment verification failed."
+                return "Payment verification failed", 400
         else:
             cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
             cursor = cnx.cursor()
             cursor.execute(
                 "SELECT user_phone, customer_name FROM orders WHERE reference_id = %s",
                 (payment_link_reference_id,)
-            )
+                )
             result = cursor.fetchone()
             cnx.close()
             if result:
                 frm, name = result
-                send_message(frm, f"Dear *{name}*, your payment was not completed. Please try again.", "payment_failed")
+                send_message(frm, f"Dear *{name}*, your payment order was not completed. Please try again.", "payment_failed")
             return "Payment failed or cancelled. Please try again."
     except Exception as e:
         print(f"Payment callback error: {e}")
