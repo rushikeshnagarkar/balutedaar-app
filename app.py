@@ -1,30 +1,20 @@
-import logging
-import os
-import re
-import json
-import uuid
-import requests
-import urllib3
-import pymysql
-import razorpay
-from datetime import datetime
+
 from flask import Flask, jsonify, request
-from dotenv import load_dotenv
+import requests
+import json
+from datetime import datetime
+import pymysql
+import urllib3
+import re
+import os
+import razorpay
+import uuidfrom dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-
-# Configure logging
-logging.basicConfig(
-    filename='app.log',
-    level=logging.DEBUG,
-    format='%(asctime)s %(levelname)s: %(message)s'
-)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
-
-# Load environment variables
 load_dotenv()
 required_env = ["MYSQL_HOST", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_DB", "AUTH_KEY", "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET"]
 for var in required_env:
@@ -42,37 +32,18 @@ razorpay_client = razorpay.Client(auth=(
     os.getenv("RAZORPAY_KEY_SECRET")
 ))
 
-# Constants
+
+# Greeting words
 greeting_word = ['Hi', 'hi', 'HI', 'Hii', 'hii', 'HII', 'Hello', 'hello', 'HELLO', 'Welcome', 'welcome', 'WELCOME', 'Hey', 'hey', 'HEY']
-CATALOG_ID = "1221166119417288"
 
 # Messages
 m1 = '''Please select a combo from the list below:'''
 m3 = '''🚚 Just one more step!
 
 Kindly share your complete delivery address so we can deliver your veggies without any delay.'''
-invalid_address = '''😕 Oops! That doesn’t look like a valid address. Please enter a complete address with house/flat number, street name, and area (e.g., Flat 101, Gokhale Society, Kothrud Pune). Use letters, numbers, spaces, commas, periods, hyphens, or slashes only.'''
+invalid_address = '''😕 Oops! That doesn’t look like a valid address. Please enter a complete address with house/flat number, street name, and area (e.g., Flat 101, Baner Road, Pune). Use letters, numbers, spaces, commas, periods, hyphens, or slashes only.'''
 invalid_name = '''⚠️ Please enter a valid name using alphabetic characters only.'''
 wl = '''Ram Ram Mandali 🙏
-
-Hi, *{name}!* 👋
-
-🌟 *Welcome to Balutedaar* 🌟
-We bring you *Farm-Fresh Vegetable Boxes* handpicked with love by rural mothers, curated for urban families like yours! 💚
-
-Here’s why you’ll love us:  
-👩‍🌾 *Fresh from Mother Earth* – Pure, healthy veggies for your family.  
-🌍 *Eco-Friendly* – Low carbon footprint for a greener planet.  
-💸 *Support Farmers Directly* – Your purchase empowers farmers with fair earnings.  
-👩‍💼 *Empower Rural Women* – Create jobs for hardworking women in villages.  
-🌱 *Your Choice, Your Way* – Pick what’s best for your family, we’ll deliver!
-
-🌟 *A small step towards fresh, sustainable, and empowering food for your loved ones!* 🇮🇳
-
-Let’s get your fresh veggies on the way! 🚜  
-Please share your *6-digit pincode* to continue. 📍'''
-
-wl_fallback = '''Ram Ram Mandali 🙏
 
 🌟 *Welcome to Balutedaar!* 🌿🥦
 
@@ -88,7 +59,6 @@ Here’s why you’ll love us:
 🌟 *A small step towards fresh, sustainable, and empowering food for your loved ones!* 🇮🇳
 
 Let’s get started – please enter your *Name* to order. 👇'''
-
 r2 = '''*Hi {name}!* 👋  
 Please enter your *6-digit pincode* to continue. 📍'''
 r3 = '''*Sorry, this pincode is not served yet!* 😔  
@@ -100,6 +70,8 @@ We currently deliver to these areas:
 Please enter a valid pincode from the list above. 📍'''
 r4 = '''*Invalid pincode!* ⚠️  
 Please enter a *6-digit pincode* (e.g., 411038). 📍'''
+
+CATALOG_ID = "1221166119417288"
 
 FALLBACK_COMBOS = {
     "D-9011": {"name": "Amaranth Combo", "price": 1.00}, 
@@ -113,29 +85,30 @@ FALLBACK_COMBOS = {
 }
 
 def send_message(rcvr, body, message):
+    url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
+    if not rcvr.startswith('+'):
+        rcvr = f"+91{rcvr.strip()[-10:]}"
+    payload = json.dumps({
+        "phone": rcvr,
+        "text": body,
+        "enable_acculync": True,
+        "extra": message
+    })
+    headers = {
+        'Content-Type': "application/json",
+        'Authorization': authkey,
+        'referer': 'https://myaccount.rmlconnect.net/'
+    }
+    print(f"send_message headers: {headers}")
+    print(f"send_message payload: {payload}")
     try:
-        url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-        if not rcvr.startswith('+'):
-            rcvr = f"+91{rcvr.strip()[-10:]}"
-        payload = json.dumps({
-            "phone": rcvr,
-            "text": body,
-            "enable_acculync": True,
-            "extra": message
-        })
-        headers = {
-            'Content-Type': "application/json",
-            'Authorization': authkey,
-            'referer': 'https://myaccount.rmlconnect.net/'
-        }
-        logging.info(f"send_message to {rcvr}, payload: {payload}")
-        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False, timeout=10)
+        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
         response.raise_for_status()
-        logging.info(f"send_message response: {response.text}")
+        print(f"send_message response: {response.text}")
         savesentlog(rcvr, response.text, response.status_code, message)
         return response.text
     except requests.RequestException as e:
-        logging.error(f"Failed to send message to {rcvr}: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
+        print(f"Failed to send message: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
         return None
 
 def savesentlog(frm, response, statuscode, Body):
@@ -149,233 +122,173 @@ def savesentlog(frm, response, statuscode, Body):
         cursor = cnx.cursor()
         cursor.execute(add_data, val)
         cnx.commit()
+        cnx.close()
     except Exception as e:
-        logging.error(f"Failed to save log for {frm}: {e}")
-    finally:
-        if 'cnx' in locals():
-            cnx.close()
+        print(f"Failed to save log: {e}")
 
 def interactive_template_with_2button(rcvr, body, message):
+    url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
+    if not rcvr.startswith('+'):
+        rcvr = f"+91{rcvr.strip()[-10:]}"
+    payload = json.dumps({
+        "phone": rcvr,
+        "enable_acculync": False,
+        "extra": message,
+        "media": {
+            "type": "interactive_list",
+            "body": body,
+            "button_text": "Choose an Option",
+            "button": [
+                {
+                    "section_title": "Order Actions",
+                    "row": [
+                        {
+                            "id": "1",
+                            "title": "Confirm",
+                            "description": "Confirm your order"
+                        }
+                    ]
+                },
+                {
+                    "section_title": "Menu Options",
+                    "row": [
+                        {
+                            "id": "2",
+                            "title": "Main Menu",
+                            "description": "Return to main menu"
+                        }
+                    ]
+                }
+            ]
+        }
+    })
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': authkey,
+        'referer': 'https://myaccount.rmlconnect.net/'
+    }
     try:
-        url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-        if not rcvr.startswith('+'):
-            rcvr = f"+91{rcvr.strip()[-10:]}"
+        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
+        response.raise_for_status()
+        print(f"2-button response: {response.text}")
+        savesentlog(rcvr, response.text, response.status_code, "order_summary")
+        return response.text
+    except requests.RequestException as e:
+        print(f"Interactive 2-button failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
+        return None
+
+def interactive_template_with_3button(frm, body, message):
+    if not authkey:
+        print(f"Skipping interactive_template_with_3button to {frm}: No authkey provided")
+        return None
+    url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
+    if not frm.startswith('+'):
+        frm = f"+91{frm.strip()[-10:]}"
+    if message == "payment":
         payload = json.dumps({
-            "phone": rcvr,
+            "phone": frm,
             "enable_acculync": False,
             "extra": message,
             "media": {
                 "type": "interactive_list",
                 "body": body,
-                "button_text": "Choose an Option",
+                "button_text": "Choose Payment",
                 "button": [
                     {
-                        "section_title": "Order Actions",
+                        "section_title": "Cash on Delivery",
                         "row": [
                             {
-                                "id": "1",
-                                "title": "Confirm",
-                                "description": "Confirm your order"
+                                "id": "3",
+                                "title": "COD",
+                                "description": "Pay cash on delivery"
                             }
                         ]
                     },
                     {
-                        "section_title": "Menu Options",
+                        "section_title": "Online Payment",
                         "row": [
                             {
-                                "id": "2",
-                                "title": "Main Menu",
-                                "description": "Return to main menu"
+                                "id": "5",
+                                "title": "Pay Now",
+                                "description": "Pay via UPI or Card"
                             }
                         ]
                     }
                 ]
             }
         })
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': authkey,
-            'referer': 'https://myaccount.rmlconnect.net/'
-        }
-        logging.info(f"2-button payload to {rcvr}: {payload}")
-        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False, timeout=10)
-        response.raise_for_status()
-        logging.info(f"2-button response: {response.text}")
-        savesentlog(rcvr, response.text, response.status_code, message)
-        return response.text
-    except requests.RequestException as e:
-        logging.error(f"Interactive 2-button failed for {rcvr}: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
-        send_message(rcvr, "Error processing order summary. Please try again.", "error")
-        return None
-
-def interactive_template_with_3button(rcvr, body, message):
+        print(f"3-button payload: {payload}")
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': authkey,
+        'referer': 'myaccount.rmlconnect.net'
+    }
     try:
-        if not authkey:
-            logging.warning(f"Skipping interactive_template_with_3button to {rcvr}: No authkey")
-            return None
-        url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-        if not rcvr.startswith('+'):
-            rcvr = f"+91{rcvr.strip()[-10:]}"
-        if message == "payment":
-            payload = json.dumps({
-                "phone": rcvr,
-                "enable_acculync": False,
-                "extra": message,
-                "media": {
-                    "type": "interactive_list",
-                    "body": body,
-                    "button_text": "Choose Payment",
-                    "button": [
-                        {
-                            "section_title": "Payment Options",
-                            "row": [
-                                {
-                                    "id": "3",
-                                    "title": "COD",
-                                    "description": "Pay cash on delivery"
-                                },
-                                {
-                                    "id": "5",
-                                    "title": "Pay Now",
-                                    "description": "Pay via UPI or Card"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            })
-            logging.info(f"3-button payload to {rcvr}: {payload}")
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': authkey,
-            'referer': 'myaccount.rmlconnect.net'
-        }
-        session = requests.Session()
-        retries = Retry(total=2, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-        session.mount('https://', HTTPAdapter(max_retries=retries))
-        response = session.post(url, headers=headers, data=payload.encode('utf-8'), verify=False, timeout=10)
-        response.raise_for_status()
-        logging.info(f"3-button response: {response.text}")
-        savesentlog(rcvr, response.text, response.status_code, message)
-        return response.text
-    except requests.RequestException as e:
-        logging.error(f"Interactive 3-button failed for {rcvr}: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
-        send_message(rcvr, "Error processing payment options. Please try again.", "payment_error")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error in interactive_template_with_3button for {rcvr}: {str(e)}", exc_info=True)
-        send_message(rcvr, "Error processing payment options. Please try again.", "payment_error")
-        return None
-
-def interactive_template_with_address_buttons(rcvr, body, message):
-    try:
-        url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-        if not rcvr.startswith('+'):
-            rcvr = f"+91{rcvr.strip()[-10:]}"
-        payload = json.dumps({
-            "phone": rcvr,
-            "enable_acculync": False,
-            "extra": message,
-            "media": {
-                "type": "interactive_list",
-                "body": body,
-                "button_text": "Choose an Option",
-                "button": [
-                    {
-                        "section_title": "Address Options",
-                        "row": [
-                            {
-                                "id": "6",
-                                "title": "Proceed",
-                                "description": "Continue with this address"
-                            }
-                        ]
-                    },
-                    {
-                        "section_title": "Change Address",
-                        "row": [
-                            {
-                                "id": "7",
-                                "title": "Enter New Address",
-                                "description": "Provide a new delivery address"
-                            }
-                        ]
-                    }
-                ]
-            }
-        })
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': authkey,
-            'referer': 'https://myaccount.rmlconnect.net/'
-        }
-        logging.info(f"Address buttons payload to {rcvr}: {payload}")
-        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False, timeout=10)
-        response.raise_for_status()
-        logging.info(f"Address buttons response: {response.text}")
-        savesentlog(rcvr, response.text, response.status_code, message)
-        return response.text
-    except requests.RequestException as e:
-        logging.error(f"Interactive address buttons failed for {rcvr}: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
-        send_message(rcvr, "Error processing address options. Please try again.", "error")
-        return None
-
-def send_multi_product_message(rcvr, catalog_id, message):
-    try:
-        url = "https://apis.rmlconnect.net/wba/v1/messages"
-        if not rcvr.startswith('+'):
-            rcvr = f"+91{rcvr.strip()[-10:]}"
-        payload = json.dumps({
-            "phone": rcvr,
-            "catalog": {
-                "type": "product_list",
-                "header": {
-                    "type": "text",
-                    "text": "Explore Our Fresh Veggie Combos! 🥗"
-                },
-                "body": {
-                    "text": "Select a combo for farm-fresh vegetables delivered to you! 🚜"
-                },
-                "action": {
-                    "catalog_id": catalog_id,
-                    "sections": [
-                        {
-                            "title": "Fresh Vegetable Combos",
-                            "product_items": [
-                                {"product_retailer_id": "D-9011"},
-                                {"product_retailer_id": "A-9011"},
-                                {"product_retailer_id": "E-9011"},
-                                {"product_retailer_id": "B-9011"},
-                                {"product_retailer_id": "C-9011"},
-                                {"product_retailer_id": "xzwqdyrcl9"},
-                                {"product_retailer_id": "7e8sbb1xg8"},
-                                {"product_retailer_id": "dm4ngkc9xr"}
-                            ]
-                        }
-                    ]
-                }
-            }
-        })
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': authkey
-        }
-        logging.info(f"Multi-product payload to {rcvr}: {payload}")
         response = requests.post(url, headers=headers, data=payload.encode('utf-8'), verify=False, timeout=10)
         response.raise_for_status()
-        logging.info(f"Multi-product response: {response.text}")
-        savesent(response(rcvr, text, response.status_code, response.text))
-        logging.info(f"Sent multi product response: {response.text}")
+        savesentlog(frm, response.text, response.status_code, message)
         return response.text
     except requests.RequestException as e:
-        logging.error(f"Multi-product message failed for {rcvr}: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
+        print(f"Interactive 3-button failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
+        return None
+
+def send_multi_product_message(rcvr, CATALOG_ID, message):
+    url = "https://apis.rmlconnect.net/wba/v1/messages"
+    if not rcvr.startswith('+'):
+        rcvr = f"+91{rcvr.strip()[-10:]}"
+    print(f"Sending multi-product message to: {rcvr}, CATALOG_ID: {CATALOG_ID}")
+    payload = json.dumps({
+        "phone": rcvr,
+        "catalog": {
+            "type": "product_list",
+            "header": {
+                "type": "text",
+                "text": "Explore Our Fresh Veggie Combos! 🥗"
+            },
+            "body": {
+                "text": "Select a combo for farm-fresh vegetables delivered to you! 🚜"
+            },
+            "action": {
+                "catalog_id": CATALOG_ID,
+                "sections": [
+                    {
+                        "title": "Fresh Vegetable Combos",
+                        "product_items": [
+                            {"product_retailer_id": "D-9011"},
+                            {"product_retailer_id": "A-9011"},
+                            {"product_retailer_id": "E-9011"},
+                            {"product_retailer_id": "B-9011"},
+                            {"product_retailer_id": "C-9011"},
+                            {"product_retailer_id": "xzwqdyrcl9"},
+                            {"product_retailer_id": "7e8sbb1xg8"},
+                            {"product_retailer_id": "dm4ngkc9xr"}
+                        ]
+                    }
+                ]
+            }
+        }
+    })
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': authkey
+    }
+    print(f"Payload: {payload}")
+    print(f"Headers: {headers}")
+    try:
+        response = requests.post(url, headers=headers, data=payload.encode('utf-8'), verify=False, timeout=10)
+        response.raise_for_status()
+        savesentlog(rcvr, response.text, response.status_code, message)
+        return response.text
+    except requests.RequestException as e:
+        print(f"Multi-product message failed: {e}")
         return None
 
 def send_payment_message(frm, name, address, pincode, items, order_amount, reference_id):
     try:
-        logging.info(f"Creating payment link for {frm}, amount: {order_amount}, reference_id: {reference_id}")
+        print(f"Creating Razorpay payment link for user {frm}, amount: {order_amount}, reference_id: {reference_id}")
+        # Create Razorpay payment link
         payment_link_data = {
-            "amount": int(order_amount * 100),
+            "amount": int(order_amount * 100),  # Convert to paise
             "currency": "INR",
             "accept_partial": False,
             "description": "Balutedaar Vegetable Combo Order",
@@ -389,14 +302,15 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             },
             "reminder_enable": True,
             "reference_id": reference_id,
-            "callback_url": "http://13.202.207.66:5000/payment-callback",
+            "callback_url": "https://f8ef-103-183-90-228.ngrok-free.app/payment-callback",
             "callback_method": "get"
         }
-        logging.info(f"Razorpay payment link data: {payment_link_data}")
+        print(f"Razorpay payment link data: {payment_link_data}")
         payment_link = razorpay_client.payment_link.create(payment_link_data)
         payment_url = payment_link.get("short_url", "")
-        logging.info(f"Razorpay payment link created: {payment_url}")
+        print(f"Razorpay payment link created: {payment_url}")
 
+        # Prepare WhatsApp message
         message = (
             f"Dear *{name}*,\n\nPlease complete your payment of ₹{order_amount:.2f} for your Balutedaar order.\n\n"
             f"📦 Order Details:\n"
@@ -409,6 +323,7 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
         message += f"Click here to pay: {payment_url}\n\n"
         message += "Complete the payment to confirm your order!"
 
+        # Send via Route Mobile WhatsApp API
         url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
         payload = json.dumps({
             "phone": frm if frm.startswith('+') else f"+91{frm[-10:]}",
@@ -421,288 +336,610 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             'Authorization': authkey,
             'referer': 'myaccount.rmlconnect.net'
         }
-        logging.info(f"Sending payment link to {frm}, payload: {payload}")
-        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False, timeout=10)
+        print(f"Sending WhatsApp message to {frm}, payload: {payload}")
+        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
         response.raise_for_status()
-        logging.info(f"Payment link response: {response.text}")
+        print(f"WhatsApp message sent, response: {response.text}")
         savesentlog(frm, response.text, response.status_code, "payment_link")
         return payment_url
     except Exception as e:
-        logging.error(f"Failed to send payment message for {frm}: {str(e)}")
+        print(f"Failed to send payment message for user {frm}: {str(e)}")
         return None
 
 def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, reference_id=None):
     try:
-        logging.info(f"Starting checkout for {rcvr}, payment_method: {payment_method}, reference_id: {reference_id}")
+        print(f"Starting checkout for user {rcvr}, payment_method: {payment_method}, reference_id: {reference_id}")
+        
+        # Validate user data from users table
+        print(f"Fetching user data for {rcvr}")
         cursor.execute("SELECT name, address, pincode FROM users WHERE phone_number = %s", (rcvr,))
         user_data = cursor.fetchone()
-        logging.info(f"User data for {rcvr}: {user_data}")
-        if not user_data or not all(user_data[:3]):
-            logging.error(f"Checkout failed: Incomplete user data for {rcvr}")
-            return {"total": 0, "message": "Error: Please provide name, address, and pincode."}
-
+        print(f"User data: {user_data}")
+        if not user_data or not all(user_data[:3]):  # Check name, address, pincode
+            print(f"Checkout failed: Incomplete user data for {rcvr}, user_data: {user_data}")
+            return {"total": 0, "message": "Error: User data incomplete. Please provide name, address, and pincode."}
+        
+        # Get cart items
         cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (rcvr,))
         cart_items = cursor.fetchall()
-        logging.info(f"Cart items for {rcvr}: {cart_items}")
+        print(f"Cart items: {cart_items}")
         if not cart_items:
-            logging.error(f"Checkout failed: No cart items for {rcvr}")
+            print(f"Checkout failed: No cart items for {rcvr}")
             return {"total": 0, "message": "Error: No valid order details found. Please select a combo."}
-
+        
         total = 0
         for item in cart_items:
             combo_id, combo_name, quantity, price = item
             subtotal = float(price) * quantity
             total += subtotal
+            
+            # Insert order into orders table
+            print(f"Inserting order: {combo_name} x{quantity}, price: {price}, total: {subtotal}, reference_id: {reference_id}")
             cursor.execute(
                 "INSERT INTO orders (user_phone, customer_name, address, pincode, combo_id, combo_name, price, quantity, total_amount, payment_method, payment_status, order_status, reference_id) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (rcvr, name, address, pincode, combo_id, combo_name, float(price), quantity, subtotal, payment_method,
                  'Pending' if payment_method != 'COD' else 'Completed', 'Placed', reference_id)
             )
-            logging.info(f"Inserted order for {rcvr}: {combo_name} x{quantity}, subtotal: ₹{subtotal:.2f}")
-
+        
+        # Log inserted orders for debugging
+        cursor.execute(
+            "SELECT id, combo_id, combo_name, quantity, price, total_amount, payment_method, order_status, created_at "
+            "FROM orders WHERE user_phone = %s AND payment_method = %s",
+            (rcvr, payment_method)
+        )
+        inserted_orders = cursor.fetchall()
+        print(f"Inserted orders for {rcvr}: {inserted_orders}")
+        
+        # Clear cart
         cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (rcvr,))
+        
+        # Clear pincode from users table
         cursor.execute("UPDATE users SET pincode = NULL WHERE phone_number = %s", (rcvr,))
+        
         cnx.commit()
-        logging.info(f"Checkout completed for {rcvr}, total: ₹{total:.2f}")
+        print(f"Checkout completed successfully for {rcvr}, total: ₹{total:.2f}")
         return {
             "total": total,
-            "message": f"Order placed successfully! Total: ₹{total:.2f}\nYour order will be delivered to {address}, Pincode: {pincode} by tomorrow 9 AM."
+            "message": f"Order placed! Total: ₹{total:.2f}\nYour order will be delivered to {address}, Pincode: {pincode} by tomorrow 9 AM."
         }
     except Exception as e:
-        logging.error(f"Checkout failed for {rcvr}: {str(e)}", exc_info=True)
+        print(f"Checkout failed for user {rcvr}: {str(e)}")
         cnx.rollback()
         return {"total": 0, "message": f"Error during checkout: {str(e)}. Please try again."}
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
+def check_pincode(pincode):
     try:
-        response = request.get_json()
-        logging.info(f"Received webhook: {json.dumps(response, indent=2)}")
-        if not response or 'messages' not in response:
-            logging.warning("Invalid webhook data")
-            return jsonify({"status": "error", "message": "Invalid data"}), 400
-
-        cnx = pymysql.connect(user=usr, max_allowed_packet=1073741824, password=pas, host=aws_host, database=db)
+        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
+        cursor.execute("SELECT pincode FROM pincodes WHERE pincode = %s", (pincode,))
+        result = cursor.fetchone()
+        cnx.close()
+        return result is not None
+    except Exception as e:
+        print(f"Pincode check failed: {e}")
+        return False
 
-        frm = response["messages"][0]["from"]
-        msg_type = response["messages"][0]["type"]
-        logging.info(f"Message from: {frm}, type: {msg_type}")
+def get_combo_price(combo_id):
+    try:
+        # Check FALLBACK_COMBOS first
+        if combo_id in FALLBACK_COMBOS:
+            price = float(FALLBACK_COMBOS[combo_id].get("price", 0))
+            print(f"Price for combo_id {combo_id} from FALLBACK_COMBOS: {price}")
+            return price
+        
+        # Fallback to combos table if combo_id not in FALLBACK_COMBOS
+        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
+        cursor = cnx.cursor()
+        cursor.execute("SELECT price FROM combos WHERE combo_id = %s", (combo_id,))
+        result = cursor.fetchone()
+        cnx.close()
+        if result:
+            price = float(result[0])
+            print(f"Price for combo_id {combo_id} from combos table: {price}")
+            return price
+        
+        # If not in combos table, return 0
+        print(f"Price for combo_id {combo_id} not found in FALLBACK_COMBOS or combos table, returning 0")
+        return 0
+    except Exception as e:
+        print(f"Failed to fetch price for combo_id {combo_id}: {e}")
+        # On error, try FALLBACK_COMBOS as final fallback
+        price = float(FALLBACK_COMBOS.get(combo_id, {}).get("price", 0))
+        print(f"Price for combo_id {combo_id} from FALLBACK_COMBOS (error fallback): {price}")
+        return price
 
-        check_already_valid = "SELECT name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, camp_id, combo_id FROM users WHERE phone_number = %s"
+def get_combo_name(combo_id):
+    combo_id = combo_id.strip()
+    try:
+        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
+        cursor = cnx.cursor()
+        cursor.execute("SELECT combo_name FROM combos WHERE combo_id = %s", (combo_id,))
+        result = cursor.fetchone()
+        cnx.close()
+        if result:
+            print(f"Found combo_name: {result[0]} for combo_id: {combo_id}")
+            return result[0]
+        print(f"Combo_id {combo_id} not in database, checking FALLBACK_COMBOS")
+        return FALLBACK_COMBOS.get(combo_id, {}).get("name", "Unknown Combo")
+    except Exception as e:
+        print(f"Failed to fetch name for combo_id {combo_id}: {e}")
+        return FALLBACK_COMBOS.get(combo_id, {}).get("name", "Unknown Combo")
+
+def reset_user_flags(frm, cnx, cursor):
+    try:
+        reset_query = """UPDATE users SET 
+            is_info = '0', main_menu = '0', is_main = '0', 
+            is_temp = '0', sub_menu = '0', is_submenu = '0',
+            selected_combo = NULL, quantity = NULL, 
+            address = NULL, payment_method = NULL, order_amount = NULL,
+            combo_id = NULL, pincode = NULL
+            WHERE phone_number = %s"""
+        cursor.execute(reset_query, (frm,))
+        cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
+        cnx.commit()
+    except Exception as e:
+        print(f"Reset flags failed: {e}")
+        cnx.rollback()
+
+def is_valid_name(resp1):
+    if resp1 in greeting_word:
+        return False
+    if not re.match(r'^[\u0900-\u097Fa-zA-Z\s]+$', resp1):
+        return False
+    return True
+
+def is_valid_address(address):
+    address = address.strip()
+    if len(address) < 10:
+        return False
+    if not re.match(r'^[a-zA-Z0-9\s,.-/]+$', address):
+        return False
+    if not (re.search(r'[a-zA-Z]', address) and re.search(r'[0-9]', address)):
+        return False
+    address_keywords = [
+        'street', 'road', 'avenue', 'lane', 'building', 'apartment', 'flat',
+        'house', 'society', 'colony', 'nagar', 'plot', 'sector', 'tower'
+    ]
+    has_keyword = any(keyword.lower() in address.lower() for keyword in address_keywords)
+    if not has_keyword and len(address) < 15:
+        return False
+    return True
+
+def get_cart_summary(phone, name, address=None):
+    try:
+        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
+        cursor = cnx.cursor()
+        cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (phone,))
+        cart_items = cursor.fetchall()
+        print(f"Cart items for {phone}: {cart_items}")
+        total = 0
+        item_count = 0
+        if not cart_items:
+            cnx.close()
+            return "No order details found! Please select a combo to proceed.", 0, 0
+        
+        cart_message = f"Hi *{name}*, 👋\n\nHere’s your Order Summary:\n\n"
+        for item in cart_items:
+            combo_id, combo_name, quantity, price = item
+            subtotal = float(price) * quantity
+            total += subtotal
+            item_count += 1
+            cart_message += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+        
+        cart_message += f"\n💰 Total Amount: ₹{total:.2f}"
+        if address:
+            cart_message += f"\n📍 Delivery Address: {address}"
+        cnx.close()
+        print(f"Generated summary for {phone}: {cart_message}")
+        return cart_message, total, item_count
+    except Exception as e:
+        print(f"Error in get_cart_summary for {phone}: {e}")
+        return "Error retrieving order details. Please try again.", 0, 0
+
+@app.route('/', methods=['POST', 'GET'])
+def Get_Message():
+    cnx = None
+    cursor = None
+    try:
+        response = request.json
+        if response is None or not isinstance(response, dict): 
+            print("No JSON data or invalid format")
+            return 'Success'
+        if 'statuses' in response: 
+            print("Received status update, skipping")
+            return 'Success'
+        if 'messages' not in response:
+            print("No 'messages' key in response")
+            return 'Success'
+
+        print(f"Received response: {response}")
+        frm = str(response["messages"][0]["from"])
+        msg_type = str(response["messages"][0]["type"])
+        print(f"Message from: {frm}, Type: {msg_type}")
+
+        if msg_type == 'text':
+            resp1 = response["messages"][0]["text"]["body"]
+        elif msg_type == 'interactive':
+            interactive_data = response["messages"][0]["interactive"]
+            if 'button_reply' in interactive_data:
+                resp1 = interactive_data["button_reply"]["id"]
+            elif 'list_reply' in interactive_data:
+                resp1 = interactive_data["list_reply"]["id"]
+            else:
+                resp1 = ''
+        elif msg_type == 'order':
+            if 'product_items' in response["messages"][0]["order"]:
+                resp1 = response["messages"][0]["order"]["product_items"][0]["product_retailer_id"]
+            else:
+                resp1 = ''
+                print("Order message missing product_items")
+        else:
+            resp1 = ''
+            
+        print(f"Processed resp1: {resp1}")
+        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
+        cursor = cnx.cursor()
+        check_already_valid = "SELECT name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id FROM users WHERE phone_number = %s"
         cursor.execute(check_already_valid, (frm,))
         result = cursor.fetchone()
 
-        if result:
-            name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, camp_id, combo_id = result
+        if result is None:
+            camp_id = '0'
+            is_valid = '0'
+            name = None
+            pincode = None
+            selected_combo = None
+            quantity = None
+            address = None
+            payment_method = None
+            order_amount = None
+            is_info = '0'
+            main_menu = '0'
+            is_main = '0'
+            is_temp = '0'
+            sub_menu = '0'
+            is_submenu = '0'
+            combo_id = None
         else:
-            name = pincode = selected_combo = quantity = address = payment_method = order_amount = camp_id = combo_id = None
-            is_valid = is_info = main_menu = is_main = is_temp = sub_menu = is_submenu = '0'
+            name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id = result
+            camp_id = '1'
 
-        if msg_type == "text":
-            body = response["messages"][0]["text"]["body"].strip()
-            logging.info(f"Text message body: {body}")
-
-        elif msg_type == "interactive":
-            interactive_data = response["messages"][0]["interactive"]
-            if "button_reply" in interactive_data:
-                resp1 = interactive_data["button_reply"]["id"]
-            elif "list_reply" in interactive_data:
-                resp1 = interactive_data["list_reply"]["id"]
-            else:
-                resp1 = ""
-            logging.info(f"Interactive response: {resp1}")
-
-        elif msg_type == "order":
-            logging.info("Order message received")
-            resp1 = ""
-
-        else:
-            logging.warning(f"Unsupported message type: {msg_type}")
-            send_message(frm, "Sorry, I can't process that type of message.", "error")
-            return jsonify({"status": "success"}), 200
-
-        if not result and body.lower() in [x.lower() for x in greeting_word]:
-            logging.info(f"New user {frm} greeted")
-            send_message(frm, wl_fallback, "welcome")
-            cursor.execute("INSERT INTO users (phone_number, is_info, created_at) VALUES (%s, %s, %s)", (frm, '1', datetime.now()))
-            cnx.commit()
-        
-        elif is_info == '1':
-            if re.match(r'^[a-zA-Z\s]+$', body):
-                logging.info(f"Valid name received for {frm}: {body}")
-                cursor.execute("UPDATE users SET name = %s, is_info = '0', is_valid = '1' WHERE phone_number = %s", (body, frm))
-                cnx.commit()
-                send_message(frm, r2.format(name=body), "ask_pincode")
-            else:
-                logging.warning(f"Invalid name for {frm}: {body}")
-                send_message(frm, invalid_name, "invalid_name")
-        
-        elif is_valid == '1' and pincode is None:
-            if re.match(r'^\d{6}$', body) and body in ['411038', '411052', '411058', '411041']:
-                logging.info(f"Valid pincode for {frm}: {body}")
-                cursor.execute("UPDATE users SET pincode = %s, main_menu = '1' WHERE phone_number = %s", (body, frm))
-                cnx.commit()
-                send_multi_product_message(frm, CATALOG_ID, "menu")
-                send_message(frm, m1, "show_menu")
-            else:
-                logging.warning(f"Invalid or unsupported pincode for {frm}: {body}")
-                send_message(frm, r3 if re.match(r'^\d{6}$', body) else r4, "invalid_pincode")
-        
-        elif main_menu == '1' and msg_type == 'order':
-            logging.info(f"Entering product selection block for {frm}")
-            try:
-                if 'product_items' in response["messages"][0]["order"]:
-                    product_items = response["messages"][0]["order"]["product_items"]
-                    logging.info(f"Processing {len(product_items)} product items for {frm}: {product_items}")
-                    
-                    total_amount = 0
-                    valid_selection = False
-                    
-                    cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
+        if (msg_type == 'text' or msg_type == 'interactive' or msg_type == 'order') and len(frm) == 12:
+            if resp1 in greeting_word:
+                if result is None:  # New user
+                    cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", (frm, '1', '1', '1'))
                     cnx.commit()
-                    logging.info(f"Cleared user_cart for {frm}")
-                    
-                    for item in product_items:
-                        combo_id = item.get("product_retailer_id", "").strip()
-                        quantity = int(item.get("quantity", 1))
-                        item_price = get_combo_price(combo_id)
-                        selected_combo = get_combo_name(combo_id)
-                        logging.info(f"Processing combo_id: {combo_id}, name: {selected_combo}, quantity: {quantity}, price: {item_price}")
+                    print('Inserted new user successfully')
+                    send_message(frm, wl, 'welcome message')
+                else:  # Existing user
+                    print(f"Existing user {frm} detected, name: {name}")
+                    if name:  # If name exists in database
+                        reset_user_flags(frm, cnx, cursor)  # Reset order-related flags, cart, and pincode
+                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                        cnx.commit()
+                        print(f"Reset flags and set is_main for user {frm}")
+                        send_message(frm, r2.format(name=name), 'pincode')  # Send pincode prompt with name
+                    else:
+                        # In case name is missing (edge case), ask for name
+                        cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                        cnx.commit()
+                        send_message(frm, wl, 'welcome message')
+
+            if camp_id == '1':
+                if is_info == '1' and pincode is None:
+                    if all(x.isalpha() or x.isspace() for x in resp1) and is_valid_name(resp1):
+                        print("Accepting name")
+                        name = resp1
+                        cursor.execute("UPDATE users SET name = %s, is_main = %s, is_info = %s WHERE phone_number = %s", (name, '1', '0', frm))
+                        cnx.commit()
+                        send_message(frm, r2.format(name=name), 'pincode')
+                        print('Pincode Msg Delivered Successfully.......')
+                    else:
+                        send_message(frm, invalid_name, "invalid_name")    
+                
+                if is_main == '1' and pincode is None:
+                    pincode = resp1
+                    print(f'Processing pincode: {pincode}')
+                    if pincode.isdigit() and len(pincode) == 6:
+                        if check_pincode(pincode):
+                            cursor.execute("UPDATE users SET pincode = %s, main_menu = %s, is_main = %s WHERE phone_number = %s", (pincode, '1', '0', frm))
+                            cnx.commit()
+                            print('Calling send_multi_product_message')
+                            result = send_multi_product_message(frm, CATALOG_ID, 'menu')
+                            print(f'send_multi_product_message result: {result}')
+                        else:
+                            send_message(frm, r3, 'pincode_error')
+                    else:
+                        send_message(frm, r4, 'invalid_pincode')
+                
+                # Address input block
+                if is_temp == '1' and address is None:
+                    print(f"Processing address input: {resp1}")
+                    if is_valid_address(resp1):
+                        address = resp1 
+                        cursor.execute("UPDATE users SET address = %s, is_submenu = %s WHERE phone_number = %s", (address, '1', frm))
+                        cnx.commit()
                         
-                        if selected_combo != "Unknown Combo" and item_price > 0 and quantity > 0:
-                            total_amount += item_price * quantity
-                            valid_selection = True
-                            try:
+                        # Generate order summary from user_cart table
+                        order_summary, total, item_count = get_cart_summary(frm, name, address)
+                        if item_count == 0:
+                            send_message(frm, order_summary, "no_order")
+                            send_multi_product_message(frm, CATALOG_ID, 'menu')
+                        else:
+                            order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
+                            print("Sending order confirmation with buttons")
+                            interactive_template_with_2button(frm, order_summary, "order_summary")
+                    else:
+                        print(f"Invalid address attempt: {resp1} from {frm}")
+                        send_message(frm, invalid_address, 'invalid_address')
+                
+                # Product selection block
+                elif main_menu == '1' and msg_type == 'order':
+                    print("Entering product selection block")
+                    if 'product_items' in response["messages"][0]["order"]:
+                        product_items = response["messages"][0]["order"]["product_items"]
+                        print(f"Processing {len(product_items)} product items")
+                        
+                        total_amount = 0
+                        valid_selection = False
+                        
+                        # Clear existing cart items for this user
+                        cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
+                        cnx.commit()
+                        
+                        # Log selected items
+                        print(f"Selected product items: {product_items}")
+                        
+                        for item in product_items:
+                            combo_id = item.get("product_retailer_id", "").strip()
+                            quantity = int(item.get("quantity", 1))
+                            item_price = get_combo_price(combo_id)  # Use updated get_combo_price
+                            selected_combo = get_combo_name(combo_id)
+                            print(f"Processing combo_id: {combo_id}, name: {selected_combo}, quantity: {quantity}, price: {item_price}")
+                            
+                            if selected_combo != "Unknown Combo" and item_price > 0:
+                                total_amount += item_price * quantity
+                                valid_selection = True
+                                print(f"Storing cart item: {selected_combo} x{quantity}, price: {item_price}")
                                 cursor.execute(
                                     "INSERT INTO user_cart (phone_number, combo_id, combo_name, quantity, price) VALUES (%s, %s, %s, %s, %s)",
                                     (frm, combo_id, selected_combo, quantity, item_price)
                                 )
                                 cnx.commit()
-                                logging.info(f"Inserted cart item for {frm}: {selected_combo} x{quantity}, price: {item_price}")
-                            except Exception as e:
-                                logging.error(f"Failed to insert cart item {combo_id} for {frm}: {str(e)}")
-                                cnx.rollback()
-                        else:
-                            logging.warning(f"Invalid combo_id {combo_id}, price {item_price}, or quantity {quantity} for {frm}")
-                    
-                    if valid_selection:
-                        cursor.execute("UPDATE users SET is_temp = '1', main_menu = '0' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        logging.info(f"Updated user state for {frm}: is_temp = 1, main_menu = 0")
-                        if camp_id == '1':
-                            cursor.execute("SELECT address FROM users WHERE phone_number = %s AND address IS NOT NULL", (frm,))
-                            previous_address = cursor.fetchone()
-                            if previous_address:
-                                address_message = f"Hi *{name}*, 👋\n\nWe have your previous address:\n📍 {previous_address[0]}\n\nWould you like to proceed with this address or enter a new one?"
-                                logging.info(f"Sending address confirmation to {frm}: {previous_address[0]}")
-                                interactive_template_with_address_buttons(frm, address_message, "address_confirmation")
                             else:
-                                logging.info(f"No previous address for {frm}, asking for new address")
+                                print(f"Invalid combo_id {combo_id} or price 0")
+                        
+                        if valid_selection:
+                            try:
+                                cursor.execute("UPDATE users SET is_temp = '1' WHERE phone_number = %s", (frm,))
+                                cnx.commit()
+                                print("Sending address prompt")
                                 send_message(frm, m3, "ask_address")
+                            except Exception as e:
+                                print(f"Database update failed: {e}")
+                                send_multi_product_message(frm, CATALOG_ID, 'menu')
+                                send_message(frm, "Error processing your selection. Please try again.", "error")
                         else:
-                            logging.info(f"New user {frm}, asking for new address")
-                            send_message(frm, m3, "ask_address")
+                            print("No valid products selected")
+                            send_multi_product_message(frm, CATALOG_ID, 'menu')
+                            send_message(frm, "Sorry, none of the selected products are available. Please choose another combo.", "illegal_combo")
                     else:
-                        logging.warning(f"No valid products selected for {frm}")
+                        print("No valid product items in order message")
                         send_multi_product_message(frm, CATALOG_ID, 'menu')
-                        send_message(frm, "Sorry, none of the selected products are available. Please choose another combo.", "illegal_combo")
-                else:
-                    logging.warning(f"No valid product items in order for {frm}")
-                    send_multi_product_message(frm, CATALOG_ID, 'menu')
-            except Exception as e:
-                logging.error(f"Error in product selection for {frm}: {str(e)}", exc_info=True)
-                cnx.rollback()
-                send_message(frm, "Error processing your selection. Please try again.", "error")
-        
-        elif is_temp == '1' and address is None:
-            if re.match(r'^[a-zA-Z0-9\s,.\/-]+$', body) and len(body) >= 10:
-                logging.info(f"Valid address for {frm}: {body}")
-                cursor.execute("UPDATE users SET address = %s, is_temp = '0', is_submenu = '1' WHERE phone_number = %s", (body, frm))
-                cnx.commit()
-                cart_summary = get_cart_summary(frm, cursor)
-                interactive_template_with_2button(frm, cart_summary, "order_summary")
-            else:
-                logging.warning(f"Invalid address for {frm}: {body}")
-                send_message(frm, invalid_address, "invalid_address")
-        
-        elif is_submenu == '1' and payment_method is None:
-            logging.info(f"Processing submenu input for {frm}: {resp1}")
-            try:
-                if resp1 == "1":  # Confirm
-                    logging.info(f"Checking user_cart for {frm}")
-                    cursor.execute("SELECT COUNT(*) FROM user_cart WHERE phone_number = %s", (frm,))
-                    cart_count = cursor.fetchone()[0]
-                    logging.info(f"Cart item count for {frm}: {cart_count}")
-                    if cart_count == 0:
-                        logging.warning(f"No items in user_cart for {frm}, redirecting to menu")
-                        send_message(frm, "No order details found! Please select a combo to proceed.", "no_order")
+                
+                elif is_submenu == '1' and payment_method is None:
+                    print(f"Processing submenu input: {resp1}")
+                    if resp1 == "1":  # Confirm
+                        print("User confirmed order, sending payment options")
+                        cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
+                        cnx.commit()
+                        interactive_template_with_3button(frm, "💳 Please select your preferred payment method to continue:", "payment")
+                    elif resp1 == "2":  # Main Menu
+                        print("User selected Main Menu, resetting flags")
                         reset_user_flags(frm, cnx, cursor)
-                        cursor.execute("UPDATE users SET main_menu = '1', is_submenu = '0' WHERE phone_number = %s", (frm,))
+                        cursor.execute("UPDATE users SET main_menu = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         send_multi_product_message(frm, CATALOG_ID, "menu")
                     else:
-                        logging.info(f"Updating users table for {frm}")
-                        cursor.execute("UPDATE users SET is_submenu = '1', payment_method = 'Pending' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        logging.info(f"Calling interactive_template_with_3button for {frm}")
-                        result = interactive_template_with_3button(frm, "💳 Please select your preferred payment method to continue:", "payment")
-                        logging.info(f"interactive_template_with_3button result for {frm}: {result}")
-                elif resp1 == "2":  # Main Menu
-                    logging.info(f"User {frm} selected Main Menu, resetting flags")
-                    reset_user_flags(frm, cnx, cursor)
-                    cursor.execute("UPDATE users SET main_menu = '1', is_submenu = '0' WHERE phone_number = %s", (frm,))
-                    cnx.commit()
-                    send_multi_product_message(frm, CATALOG_ID, "menu")
-                else:
-                    logging.warning(f"Invalid submenu input for {frm}: {resp1}")
-                    send_message(frm, "Invalid selection. Please choose Confirm or Main Menu.", "invalid_input")
-            except Exception as e:
-                logging.error(f"Error in submenu block for {frm}: {str(e)}", exc_info=True)
-                cnx.rollback()
-                send_message(frm, "An error occurred. Please try again.", "error")
-        
-        elif payment_method == 'Pending' and resp1 in ['3', '5']:
-            logging.info(f"Processing payment selection for {frm}: {resp1}")
-            try:
-                if resp1 == "3":  # COD
-                    payment_method = "COD"
-                    result = checkout(frm, name, address, pincode, payment_method, cnx, cursor)
-                    cursor.execute("UPDATE users SET payment_method = NULL, is_submenu = '0', main_menu = '1' WHERE phone_number = %s", (frm,))
-                    cnx.commit()
-                    send_message(frm, result["message"], "order_confirmation")
-                elif resp1 == "5":  # Pay Now
-                    cursor.execute("SELECT combo_id, combo_name, price, quantity FROM user_cart WHERE phone_number = %s", (frm,))
-                    items = cursor.fetchall()
-                    reference_id = str(uuid.uuid4())
-                    result = send_payment_message(frm, name, address, pincode, items, sum(float(item[2]) * item[3] for item in items), reference_id)
-                    if result:
-                        cursor.execute("UPDATE users SET payment_method = 'Online', reference_id = %s WHERE phone_number = %s", (reference_id, frm))
-                        cnx.commit()
-                        send_message(frm, "Please complete the payment using the link sent.", "payment_initiated")
-                    else:
-                        send_message(frm, "Error generating payment link. Please try again.", "payment_error")
-            except Exception as e:
-                logging.error(f"Error in payment processing for {frm}: {str(e)}", exc_info=True)
-                cnx.rollback()
-                send_message(frm, "Error processing payment. Please try again.", "error")
-        
-        else:
-            logging.warning(f"Unhandled state for {frm}: is_submenu={is_submenu}, payment_method={payment_method}, resp1={resp1}")
-            send_message(frm, "I'm not sure how to proceed. Please start over by saying 'Hi'.", "unknown_state")
+                        payment_method = {"3": "COD", "5": "Pay Now"}.get(resp1)
+                        if payment_method:
+                            print(f"User selected payment method: {payment_method}")
+                            cursor.execute("UPDATE users SET payment_method = %s WHERE phone_number = %s", (payment_method, frm))
+                            cnx.commit()
+                            # Fetch cart items
+                            cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (frm,))
+                            cart_items = cursor.fetchall()
+                            print(f"Cart items for checkout: {cart_items}")
+                            if not cart_items:
+                                print("No valid order details in user_cart table")
+                                send_message(frm, "No order details found! Please select a combo to proceed.", "no_order")
+                                cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                cnx.commit()
+                                cnx.close()
+                                return 'Success'
+                            
+                            total_amount = sum(float(item[3]) * item[2] for item in cart_items)  # price * quantity
+                            items = [(item[0], item[1], float(item[3]), item[2]) for item in cart_items]  # (combo_id, combo_name, price, quantity)
+                            
+                            if payment_method == "COD":
+                                print(f"Processing COD checkout for user {frm}")
+                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor)
+                                if checkout_result["total"] == 0:
+                                    print(f"Checkout failed during COD for user {frm}: {checkout_result['message']}")
+                                    send_message(frm, checkout_result["message"], "invalid_order")
+                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                    cnx.commit()
+                                    cnx.close()
+                                    return 'Success'
+                                
+                                # Debug: Check orders table before confirmation query
+                                cursor.execute(
+                                    "SELECT id, combo_id, combo_name, quantity, price, total_amount, payment_method, order_status, created_at "
+                                    "FROM orders WHERE user_phone = %s",
+                                    (frm,)
+                                )
+                                all_orders = cursor.fetchall()
+                                print(f"All orders for {frm} before confirmation: {all_orders}")
+                                
+                                # Generate final confirmation from orders
+                                cursor.execute(
+                                    "SELECT combo_id, combo_name, price, quantity, total_amount, address "
+                                    "FROM orders WHERE user_phone = %s AND payment_method = 'COD' AND order_status = 'Placed' "
+                                    "ORDER BY created_at DESC",
+                                    (frm,)
+                                )
+                                items = cursor.fetchall()
+                                print(f"Orders for confirmation: {items}")
+                                if not items:
+                                    # Fallback query to diagnose
+                                    cursor.execute(
+                                        "SELECT combo_id, combo_name, price, quantity, total_amount, address, payment_method, order_status "
+                                        "FROM orders WHERE user_phone = %s ORDER BY created_at DESC",
+                                        (frm,)
+                                    )
+                                    fallback_items = cursor.fetchall()
+                                    print(f"Fallback query results for {frm}: {fallback_items}")
+                                    send_message(frm, "Error: No order found. Please try again.", "no_order")
+                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                    cnx.commit()
+                                    cnx.close()
+                                    return 'Success'
+                                
+                                total = 0
+                                item_count = 0
+                                confirmation = f"Dear *{name}*,\n\nThank you for your order with Balutedaar! Below is your order confirmation:\n\n📦 *Order Details*:\n"
+                                for item in items:
+                                    combo_id, combo_name, price, quantity, item_total, address = item
+                                    subtotal = float(price) * quantity
+                                    total += subtotal
+                                    item_count += 1
+                                    confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+                                confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
+                                confirmation += f"🚚 *Delivery Schedule*: Your order will be delivered to your doorstep by tomorrow 9 AM.\n\n"
+                                confirmation += f"We appreciate your support for fresh, sustainable produce. If you have any questions, feel free to reach out!\n\nBest regards,\nThe Balutedaar Team"
+                                print(f"Sending COD confirmation to {frm}")
+                                cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
+                                cnx.commit()
+                                send_message(frm, confirmation, "order_confirmation")
+                                cnx.close()
+                                return 'Success'
+                            elif payment_method == "Pay Now":
+                                print(f"Processing Pay Now for user {frm}")
+                                reference_id = f"q9{uuid.uuid4().hex[:8]}"
+                                print(f"Generated reference_id: {reference_id}")
+                                
+                                # Run checkout to move order to orders table
+                                print(f"Calling checkout for Pay Now, user: {frm}")
+                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
+                                if checkout_result["total"] == 0:
+                                    print(f"Checkout failed during Pay Now for user {frm}: {checkout_result['message']}")
+                                    send_message(frm, checkout_result["message"], "invalid_order")
+                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                    cnx.commit()
+                                    cnx.close()
+                                    return 'Success'
+                                
+                                # Send Razorpay payment link
+                                print(f"Sending payment link for user {frm}")
+                                payment_url = send_payment_message(frm, name, address, pincode, items, total_amount, reference_id)
+                                if not payment_url:
+                                    print(f"Failed to generate payment link for user {frm}")
+                                    send_message(frm, "Error generating payment link. Please try again.", "payment_error")
+                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                    cnx.commit()
+                                    cnx.close()
+                                    return 'Success'
+                                
+                                print(f"Payment link sent successfully to {frm}: {payment_url}")
+                                cursor.execute("UPDATE users SET is_submenu = '0' WHERE phone_number = %s", (frm,))
+                                cnx.commit()
+                                cnx.close()
+                                return 'Success'
 
         cnx.commit()
-        return jsonify({"status": "success"}), 200
+        cnx.close()
+        return 'Success'
     except Exception as e:
-        logging.error(f"Webhook error: {str(e)}", exc_info=True)
-        if 'cnx' in locals():
+        print(f"Main handler error: {e}")
+        if cnx:
             cnx.rollback()
             cnx.close()
-        return jsonify({"status": "error", "message": str(e)}), 500
-    finally:
-        if 'cnx' in locals():
+        return 'Success'
+
+@app.route('/payment-callback', methods=['GET'])
+def payment_callback():
+    try:
+        payment_id = request.args.get('razorpay_payment_id')
+        payment_link_id = request.args.get('razorpay_payment_link_id')
+        payment_link_reference_id = request.args.get('razorpay_payment_link_reference_id')
+        payment_link_status = request.args.get('razorpay_payment_link_status')
+        signature = request.args.get('razorpay_signature')
+
+        if payment_link_status == 'paid':
+            try:
+                razorpay_client.utility.verify_payment_link_signature({
+                    "payment_link_id": payment_link_id,
+                    "payment_link_reference_id": payment_link_reference_id,
+                    "payment_link_status": payment_link_status,
+                    "razorpay_payment_id": payment_id,
+                    "razorpay_signature": signature
+                })
+                # Update order status in database
+                cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
+                cursor = cnx.cursor()
+                cursor.execute(
+                    "UPDATE orders SET payment_status = 'Completed', order_status = 'Confirmed' WHERE reference_id = %s",
+                    (payment_link_reference_id,)
+                )
+                cursor.execute(
+                    "SELECT user_phone, customer_name, address, pincode, combo_id, combo_name, price, quantity, total_amount "
+                    "FROM orders WHERE reference_id = %s",
+                    (payment_link_reference_id,)
+                )
+                items = cursor.fetchall()
+                
+                # Clear pincode from users table
+                if items:
+                    frm = items[0][0]
+                    cursor.execute("UPDATE users SET pincode = NULL WHERE phone_number = %s", (frm,))
+                
+                cnx.commit()
+                cnx.close()
+                
+                if items:
+                    frm, name, address, pincode = items[0][0:4]
+                    total = items[0][8]
+                    confirmation = f"Dear *{name}*,\n\nThank you for your payment! Your order is confirmed:\n\n📦 *Order Details*:\n"
+                    for item in items:
+                        combo_name, price, quantity = item[5:8]
+                        subtotal = float(price) * quantity
+                        confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+                    confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
+                    confirmation += f"🚚 *Delivery Schedule*: Your order will be delivered by tomorrow 9 AM.\n\n"
+                    confirmation += f"We appreciate your support for fresh, sustainable produce!\n\nBest regards,\nThe Balutedaar Team"
+                    send_message(frm, confirmation, "payment_confirmation")
+                return "Payment successful! Your order is confirmed."
+            except Exception as e:
+                print(f"Payment verification failed: {e}")
+                return "Payment verification failed."
+        else:
+            cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
+            cursor = cnx.cursor()
+            cursor.execute(
+                "SELECT user_phone, customer_name FROM orders WHERE reference_id = %s",
+                (payment_link_reference_id,)
+            )
+            result = cursor.fetchone()
             cnx.close()
+            if result:
+                frm, name = result
+                send_message(frm, f"Dear *{name}*, your payment was not completed. Please try again.", "payment_failed")
+            return "Payment failed or cancelled. Please try again."
+    except Exception as e:
+        print(f"Payment callback error: {e}")
+        return "Error processing payment callback."
 
 if __name__ == '__main__':
+    app.debug = True
     app.run(host='0.0.0.0', port=5000)
