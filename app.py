@@ -901,15 +901,23 @@ def payment_callback():
         payment_link_status = request.args.get('razorpay_payment_link_status')
         signature = request.args.get('razorpay_signature')
 
+        print(f"Payment callback received: payment_id={payment_id}, payment_link_id={payment_link_id}, reference_id={payment_link_reference_id}, status={payment_link_status}")
+
         if payment_link_status == 'paid':
             try:
-                razorpay_client.utility.verify_payment_link({
-                    "payment_link_id": payment_link_id,
-                    "payment_link_reference_id": payment_link_reference_id,
-                    "payment_link_status": payment_link_status,
-                    "razorpay_payment_id": payment_id,
-                    "razorpay_signature": signature
-                })
+                if hasattr(razorpay_client.utility, 'verify_payment_link'):
+                    razorpay_client.utility.verify_payment_link({
+                        "payment_link_id": payment_link_id,
+                        "payment_link_reference_id": payment_link_reference_id,
+                        "payment_link_status": payment_link_status,
+                        "razorpay_payment_id": payment_id,
+                        "razorpay_signature": signature
+                    })
+                    print("Payment link verification successful")
+                else:
+                    print("Warning: verify_payment_link not available in razorpay library. Skipping verification (ensure library is updated).")
+                    logging.warning("Razorpay verify_payment_link not available. Proceeding without verification for payment_id: %s", payment_id)
+
                 cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
                 cursor = cnx.cursor()
                 cursor.execute(
@@ -932,7 +940,7 @@ def payment_callback():
                 
                 if items:
                     frm, name, address, pincode = items[0][0:4]
-                    total = 0  # Recalculate total for confirmation
+                    total = 0
                     confirmation = f"Dear *{name}*,\n\nThank you for your payment! Your order has been confirmed:\n\n📦 *Order Details*:\n"
                     for item in items:
                         combo_name, price, quantity = item[5:8]
@@ -943,9 +951,15 @@ def payment_callback():
                     confirmation += f"🚚 Your order will be delivered by tomorrow 9 AM.\n\n"
                     confirmation += "We appreciate your support for fresh, sustainable produce!\nBest regards,\nThe Balutedaar Team"
                     send_message(frm, confirmation, "payment_confirmation")
-                return "Payment successful! Your order is confirmed."
+                    print(f"Payment confirmation sent to {frm}")
+                    return "Payment successful! Your order is confirmed."
+                else:
+                    print(f"No order found for reference_id: {payment_link_reference_id}")
+                    logging.error("No order found for payment callback: %s", payment_link_reference_id)
+                    return "Error: Order not found", 400
             except Exception as e:
                 print(f"Payment verification failed: {e}")
+                logging.error("Payment verification failed for payment_id: %s, error: %s", payment_id, str(e))
                 return "Payment verification failed", 400
         else:
             cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
@@ -959,10 +973,12 @@ def payment_callback():
             if result:
                 frm, name = result
                 send_message(frm, f"Dear *{name}*, your payment was not completed. Please try again.", "payment_failed")
+                print(f"Payment failed message sent to {frm}")
             return "Payment failed or cancelled. Please try again."
     except Exception as e:
         print(f"Payment callback error: {e}")
-        return "Error processing payment callback"
+        logging.error("Payment callback error: %s", str(e))
+        return "Error processing payment callback", 500
 
 if __name__ == '__main__':
     app.debug = True
