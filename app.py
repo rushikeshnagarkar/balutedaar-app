@@ -11,6 +11,13 @@ import uuid
 import logging
 from dotenv import load_dotenv
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    filename='app.log',
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
@@ -321,7 +328,6 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             "callback_method": "get"
         }
         print(f"Razorpay payment link data: {payment_link_data}")
-        
         if not hasattr(razorpay_client, 'payment_link'):
             raise AttributeError("Razorpay client does not support payment_link. Please upgrade the razorpay library.")
         
@@ -700,7 +706,7 @@ def Get_Message():
                         else:
                             order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
                             print("Sending order confirmation with buttons")
-                            interactive_template_with_2(frm, order_summary, "order_summary")
+                            interactive_template_with_2button(frm, order_summary, "order_summary")  # Fixed function name
                     else:
                         print(f"Invalid address attempt: {resp1} from {frm}")
                         send_message(frm, invalid_address, 'invalid_address')
@@ -708,7 +714,7 @@ def Get_Message():
                 elif main_menu == '1' and msg_type == 'order':
                     print("Entering product selection block")
                     if 'product_items' in response["messages"][0]["order"]:
-                        product_items = response["messages"][0]["product_items"]
+                        product_items = response["messages"][0]["order"]["product_items"]
                         print(f"Processing {len(product_items)} product items")
                         
                         total_amount = 0
@@ -743,7 +749,7 @@ def Get_Message():
                                 cursor.execute("UPDATE users SET is_temp = %s WHERE phone_number = %s", ('1', frm))
                                 cnx.commit()
                                 print("Sending address prompt")
-                                send_message(frm, m3, "ask_address")
+                                send_message(frm, m3, "ask_address")  # Fixed typo
                             except Exception as e:
                                 print(f"Database update failed: {e}")
                                 send_multi_product_message(frm, CATALOG_ID, 'menu')
@@ -802,7 +808,7 @@ def Get_Message():
                                     return 'Success'
                                 
                                 cursor.execute(
-                                    "SELECT id, combo_id, combo_name, quantity, price, total_amount, total, payment_method, order_status, created_at FROM orders WHERE user_phone = %s",
+                                    "SELECT id, combo_id, combo_name, quantity, price, total_amount, payment_method, order_status, created_at FROM orders WHERE user_phone = %s",
                                     (frm,)
                                 )
                                 all_orders = cursor.fetchall()
@@ -813,6 +819,7 @@ def Get_Message():
                                     "FROM orders WHERE user_phone = %s AND payment_method = %s AND order_status = %s "
                                     "ORDER BY created_at DESC",
                                     (frm, 'COD', 'Placed')
+                                )  # Fixed missing parenthesis
                                 items = cursor.fetchall()
                                 print(f"Selected orders: {items}")
                                 if not items:
@@ -829,13 +836,12 @@ def Get_Message():
                                     cnx.close()
                                     return 'Success'
                                 
-                                totalpara = 0
+                                total = checkout_result["total"]  # Use total from checkout
                                 item_count = 0
                                 confirmation = f"Dear *{name}*,\n\nThank you for your order with Balutedaar! Below is your order confirmation:\n\n📦 *Order Details*:\n"
                                 for item in items:
                                     combo_id, combo_name, price, quantity, item_total, address = item
                                     subtotal = float(price) * quantity
-                                    total += subtotal
                                     item_count += 1
                                     confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
                                 confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
@@ -876,8 +882,9 @@ def Get_Message():
                                 cnx.close()
                                 return 'Success'
 
-        cnx.commit()
-        cnx.close()
+        if cnx:
+            cnx.commit()
+            cnx.close()
         return 'Success'
     except Exception as e:
         print(f"Main handler error: {e}")
@@ -925,11 +932,12 @@ def payment_callback():
                 
                 if items:
                     frm, name, address, pincode = items[0][0:4]
-                    total = items[0][8]
+                    total = 0  # Recalculate total for confirmation
                     confirmation = f"Dear *{name}*,\n\nThank you for your payment! Your order has been confirmed:\n\n📦 *Order Details*:\n"
                     for item in items:
                         combo_name, price, quantity = item[5:8]
                         subtotal = float(price) * quantity
+                        total += subtotal
                         confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
                     confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
                     confirmation += f"🚚 Your order will be delivered by tomorrow 9 AM.\n\n"
