@@ -281,6 +281,66 @@ def send_multi_product_message(rcvr, CATALOG_ID, message):
         print(f"Multi-product message failed: {e}")
         return None
 
+# def send_payment_message(frm, name, address, pincode, items, order_amount, reference_id):
+#     try:
+#         print(f"Creating Razorpay payment link for user {frm}, amount: {order_amount}, reference_id: {reference_id}")
+#         payment_link_data = {
+#             "amount": int(order_amount * 100),
+#             "currency": "INR",
+#             "accept_partial": False,
+#             "description": "Balutedaar Vegetable Combo Order",
+#             "customer": {
+#                 "name": name,
+#                 "contact": frm if frm.startswith('+') else f"+91{frm[-10:]}"
+#             },
+#             "notify": {
+#                 "sms": True,
+#                 "whatsapp": True
+#             },
+#             "reminder_enable": True,
+#             "reference_id": reference_id,
+#             "callback_url": "http://13.202.207.66:5000/payment-callback",
+#             "callback_method": "get"
+#         }
+#         print(f"Razorpay payment link data: {payment_link_data}")
+#         payment_link = razorpay_client.payment_link.create(payment_link_data)
+#         payment_url = payment_link.get("short_url", "")
+#         print(f"Razorpay payment link created: {payment_url}")
+
+#         message = (
+#             f"Dear *{name}*,\n\nPlease complete your payment of ₹{order_amount:.2f} for your Balutedaar order.\n\n"
+#             f"📦 Order Details:\n"
+#         )
+#         for item in items:
+#             combo_id, combo_name, price, quantity = item
+#             subtotal = float(price) * quantity
+#             message += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+#         message += f"\n💰 Total: ₹{order_amount:.2f}\n📍 Delivery Address: {address}\n\n"
+#         message += f"Click here to pay: {payment_url}\n\n"
+#         message += "Complete the payment to confirm your order!"
+
+#         url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
+#         payload = json.dumps({
+#             "phone": frm if frm.startswith('+') else f"+91{frm[-10:]}",
+#             "text": message,
+#             "enable_acculync": True,
+#             "extra": "payment_link"
+#         })
+#         headers = {
+#             'Content-Type': "application/json",
+#             'Authorization': authkey,
+#             'referer': 'myaccount.rmlconnect.net'
+#         }
+#         print(f"Sending WhatsApp message to {frm}, payload: {payload}")
+#         response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
+#         response.raise_for_status()
+#         print(f"WhatsApp message sent, response: {response.text}")
+#         savesentlog(frm, response.text, response.status_code, "payment_link")
+#         return payment_url
+#     except Exception as e:
+#         print(f"Failed to send payment message for user {frm}: {str(e)}")
+#         return None
+
 def send_payment_message(frm, name, address, pincode, items, order_amount, reference_id):
     try:
         print(f"Creating Razorpay payment link for user {frm}, amount: {order_amount}, reference_id: {reference_id}")
@@ -303,6 +363,11 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             "callback_method": "get"
         }
         print(f"Razorpay payment link data: {payment_link_data}")
+        
+        # Verify payment_link attribute exists
+        if not hasattr(razorpay_client, 'payment_link'):
+            raise AttributeError("Razorpay client does not support payment_link. Please upgrade the razorpay library.")
+        
         payment_link = razorpay_client.payment_link.create(payment_link_data)
         payment_url = payment_link.get("short_url", "")
         print(f"Razorpay payment link created: {payment_url}")
@@ -337,8 +402,13 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
         print(f"WhatsApp message sent, response: {response.text}")
         savesentlog(frm, response.text, response.status_code, "payment_link")
         return payment_url
+    except AttributeError as e:
+        print(f"Failed to send payment message for user {frm}: {str(e)}")
+        logging.error(f"Razorpay payment link creation failed: {str(e)}")
+        return None
     except Exception as e:
         print(f"Failed to send payment message for user {frm}: {str(e)}")
+        logging.error(f"Unexpected error in send_payment_message: {str(e)}")
         return None
 
 def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, reference_id=None):
