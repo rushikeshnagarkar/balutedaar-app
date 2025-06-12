@@ -387,10 +387,10 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
 
         total = 0
         for item in cart_items:
-            combo_id = item[0']
-            combo_name = item[1']
-            quantity = item[2']
-            price = item[3']
+            combo_id = item[0]
+            combo_name = item[1]
+            quantity = item[2]
+            price = item[3]
             subtotal = float(price) * quantity
             total += subtotal
             print(f"Inserting order: {combo_name} x{quantity}, total: {subtotal}, price={price}")
