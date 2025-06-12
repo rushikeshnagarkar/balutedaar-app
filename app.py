@@ -218,32 +218,30 @@ def interactive_template_with_3button(rcvr, body, message):
                 "phone": rcvr,
                 "enable_acculync": False,
                 "extra": message,
-                "media": {
-                    "type": "interactive_list",
-                    "body": body,
-                    "button_text": "Choose Payment",
-                    "button": [
-                        {
-                            "section_title": "Cash on Delivery",
-                            "row": [
-                                {
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {
+                        "text": body
+                    },
+                    "action": {
+                        "buttons": [
+                            {
+                                "type": "reply",
+                                "reply": {
                                     "id": "3",
-                                    "title": "COD",
-                                    "description": "Pay cash on delivery"
+                                    "title": "COD"
                                 }
-                            ]
-                        },
-                        {
-                            "section_title": "Online Payment",
-                            "row": [
-                                {
+                            },
+                            {
+                                "type": "reply",
+                                "reply": {
                                     "id": "5",
-                                    "title": "Pay Now",
-                                    "description": "Pay via UPI or Card"
+                                    "title": "Pay Now"
                                 }
-                            ]
-                        }
-                    ]
+                            }
+                        ]
+                    }
                 }
             })
             logging.info(f"3-button payload: {payload}")
@@ -254,10 +252,12 @@ def interactive_template_with_3button(rcvr, body, message):
         }
         response = requests.post(url, headers=headers, data=payload.encode('utf-8'), verify=False, timeout=10)
         response.raise_for_status()
+        logging.info(f"3-button response: {response.text}")
         savesentlog(rcvr, response.text, response.status_code, message)
         return response.text
     except requests.RequestException as e:
         logging.error(f"Interactive 3-button failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
+        send_message(rcvr, "Error processing payment options. Please try again.", "payment_error")
         return None
 
 def interactive_template_with_address_buttons(rcvr, body, message):
