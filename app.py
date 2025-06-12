@@ -360,7 +360,7 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
         savesentlog(frm, response.text, response.status_code, "payment_link")
         return payment_url
     except AttributeError as e:
-        print(f"Failed to send payment message to {frm}: {e}"")
+        print(f"Failed to send payment message to {frm}: {e}")
         logging.error(f"Razorpay payment link creation failed: {e}")
         return None
     except Exception as e:
