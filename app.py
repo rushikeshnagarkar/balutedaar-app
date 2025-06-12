@@ -299,7 +299,7 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             },
             "reminder_enable": True,
             "reference_id": reference_id,
-            "callback_url": "https://f8ef-103-183-90-228.ngrok-free.app/payment-callback",
+            "callback_url": "http://13.202.207.66:5000/payment-callback",
             "callback_method": "get"
         }
         print(f"Razorpay payment link data: {payment_link_data}")
