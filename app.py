@@ -698,7 +698,7 @@ def Get_Message():
                         )
                         cnx.commit()
                         logging.info(f"Inserted new user {frm} with WhatsApp profile name: {name}")
-                        send_message(frm, wl.format(name=name), 'pincode')
+                        send_message(frm, r2.format(name=name), 'pincode')
                     else:
                         cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", 
                                       (frm, '1', '1', '1'))
@@ -778,13 +778,14 @@ def Get_Message():
                         send_message(frm, invalid_address, 'invalid_address')
                 
                 elif is_temp == '1' and address is not None and is_submenu == '0':
-                    logging.info(f"Processing address confirmation input: {resp1}")
+                    logging.info(f"Processing address confirmation input: {resp1}, current address: {address}")
                     if resp1 == "6":  # Proceed with existing address
                         logging.info(f"User {frm} chose to proceed with existing address: {address}")
                         cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         order_summary, total, item_count = get_cart_summary(frm, name, address)
                         if item_count == 0:
+                            logging.warning(f"No items in cart for {frm} after address confirmation")
                             send_message(frm, order_summary, "no_order")
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
                         else:
@@ -796,6 +797,9 @@ def Get_Message():
                         cursor.execute("UPDATE users SET address = NULL, is_temp = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         send_message(frm, m3, "ask_address")
+                    else:
+                        logging.warning(f"Invalid response in address confirmation: {resp1} from {frm}")
+                        send_message(frm, "Invalid selection. Please choose 'Proceed' or 'Enter New Address'.", "invalid_selection")
                 
                 elif main_menu == '1' and msg_type == 'order':
                     logging.info("Entering product selection block")
@@ -832,8 +836,6 @@ def Get_Message():
                         
                         if valid_selection:
                             try:
-                                cursor.execute("UPDATE users SET is_temp = '1', is_submenu = '0' WHERE phone_number = %s", (frm,))
-                                cnx.commit()
                                 # Check for previous address in orders table for existing users
                                 if camp_id == '1':
                                     cursor.execute(
@@ -842,13 +844,22 @@ def Get_Message():
                                     )
                                     previous_address = cursor.fetchone()
                                     if previous_address and is_valid_address(previous_address[0]):
+                                        cursor.execute(
+                                            "UPDATE users SET is_temp = '1', is_submenu = '0', address = %s WHERE phone_number = %s",
+                                            (previous_address[0], frm)
+                                        )
+                                        cnx.commit()
                                         address_message = f"Hi *{name}*, 👋\n\nWe have your previous address:\n📍 {previous_address[0]}\n\nWould you like to proceed with this address or enter a new one?"
                                         logging.info(f"Sending address confirmation to {frm} with previous address: {previous_address[0]}")
                                         interactive_template_with_address_buttons(frm, address_message, "address_confirmation")
                                     else:
+                                        cursor.execute("UPDATE users SET is_temp = '1', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
+                                        cnx.commit()
                                         logging.info("No valid previous address found in orders table, asking for new address")
                                         send_message(frm, m3, "ask_address")
                                 else:
+                                    cursor.execute("UPDATE users SET is_temp = '1', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
+                                    cnx.commit()
                                     logging.info("New user, asking for new address")
                                     send_message(frm, m3, "ask_address")
                             except Exception as e:
