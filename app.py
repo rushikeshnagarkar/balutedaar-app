@@ -711,7 +711,7 @@ def Get_Message():
                     logging.info(f"Existing user {frm} detected, name: {name}")
                     if name:
                         reset_user_flags(frm, cnx, cursor)
-                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1', is_temp = '0', is_submenu = '0', main_menu = '0' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         logging.info(f"Reset flags and set is_main for user {frm}")
                         send_message(frm, r2.format(name=name), 'pincode')
