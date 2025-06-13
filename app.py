@@ -479,21 +479,19 @@ def get_combo_name(combo_id):
         print(f"Failed to fetch name for combo_id {combo_id}: {e}")
         return FALLBACK_COMBOS.get(combo_id, {}).get("name", "Unknown Combo")
 
-def reset_user_flags(frm, cnx, cursor):
-    try:
-        reset_query = """UPDATE users SET 
-            is_info = '0', main_menu = '0', is_main = '0', 
-            is_temp = '0', sub_menu = '0', is_submenu = '0',
-            selected_combo = NULL, quantity = NULL, 
-            address = NULL, payment_method = NULL, order_amount = NULL,
-            combo_id = NULL, pincode = NULL
-            WHERE phone_number = %s"""
-        cursor.execute(reset_query, (frm,))
-        cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
-        cnx.commit()
-    except Exception as e:
-        print(f"Reset flags failed: {e}")
-        cnx.rollback()
+def reset_user_flags(phone_number, cnx, cursor):
+    """
+    Reset all user flags to initial state.
+    """
+    cursor.execute(
+        "UPDATE users SET is_main = '0', is_info = '0', main_menu = '0', is_temp = '0', "
+        "is_submenu = '0', sub_menu = '0', address = NULL, payment_method = NULL, "
+        "pincode = NULL, selected_combo = NULL, quantity = NULL, order_amount = NULL, "
+        "combo_id = NULL WHERE phone_number = %s",
+        (phone_number,)
+    )
+    cnx.commit()
+    logging.info(f"Reset all flags for user {phone_number}")
 
 def is_valid_name(name):
     """
@@ -607,6 +605,15 @@ def interactive_template_with_address_buttons(rcvr, body, message):
         logging.error(f"Interactive address buttons failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
         return None
         
+import re
+import uuid
+import pymysql
+import logging
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+
 @app.route('/', methods=['POST', 'GET'])
 def Get_Message():
     cnx = None
@@ -642,6 +649,21 @@ def Get_Message():
         frm = str(response["messages"][0]["from"])
         msg_type = response["messages"][0]["type"]
         logging.info(f"Message from: {frm}, type: {msg_type}")
+        message_id = response["messages"][0].get("id", "")
+        logging.info(f"Message ID: {message_id}")
+
+        # Check for duplicate message ID to prevent re-processing
+        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
+        cursor = cnx.cursor()
+        cursor.execute("SELECT message_id FROM processed_messages WHERE message_id = %s", (message_id,))
+        if cursor.fetchone():
+            logging.info(f"Duplicate message ID {message_id} detected, skipping")
+            cnx.close()
+            return 'Success', 200
+
+        # Store message ID to mark as processed
+        cursor.execute("INSERT INTO processed_messages (message_id) VALUES (%s)", (message_id,))
+        cnx.commit()
 
         if msg_type == "interactive":
             interactive_data = response["messages"][0]["interactive"]
@@ -660,11 +682,9 @@ def Get_Message():
                 resp1 = ''
                 logging.warning("Order message missing product_items")
         else:
-            resp1 = ''
+            resp1 = ""
             
         logging.info(f"Processed resp1: {resp1}")
-        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
-        cursor = cnx.cursor()
         check_already_valid = "SELECT name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id FROM users WHERE phone_number = %s"
         cursor.execute(check_already_valid, (frm,))
         result = cursor.fetchone()
@@ -705,7 +725,7 @@ def Get_Message():
                         send_message(frm, wl.format(name=name), 'pincode')
                     else:
                         cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", 
-                                      (frm, '1', '1', '1'))
+                                       (frm, '1', '1', '1'))
                         cnx.commit()
                         logging.info(f"Inserted new user {frm}, no valid profile name, asking for name")
                         send_message(frm, wl_fallback, 'welcome message')
@@ -721,9 +741,10 @@ def Get_Message():
                         profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
                         if profile_name and is_valid_name(profile_name):
                             name = profile_name
+                            reset_user_flags(frm, cnx, cursor)
                             cursor.execute(
-                                "UPDATE users SET name = %s, is_main = %s, is_valid = %s WHERE phone_number = %s",
-                                (name, '1', '1', frm)
+                                "UPDATE users SET name = %s, is_main = '1', is_valid = '1' WHERE phone_number = %s",
+                                (name, frm)
                             )
                             cnx.commit()
                             logging.info(f"Updated user {frm} with WhatsApp profile name: {name}")
@@ -736,23 +757,27 @@ def Get_Message():
             if camp_id == '1':
                 if is_info == '1' and pincode is None:
                     if is_valid_name(resp1):
-                        logging.info("Accepting name")
+                        logging.info(f"Accepting name: {resp1}")
                         name = resp1
-                        cursor.execute("UPDATE users SET name = %s, is_main = %s, is_info = %s WHERE phone_number = %s", 
-                                      (name, '1', '0', frm))
+                        cursor.execute(
+                            "UPDATE users SET name = %s, is_main = '1', is_info = '0' WHERE phone_number = %s",
+                            (name, frm)
+                        )
                         cnx.commit()
                         send_message(frm, r2.format(name=name), 'pincode')
-                        logging.info('Pincode Msg Delivered Successfully')
+                        logging.info('Pincode message delivered successfully')
                     else:
-                        send_message(frm, invalid_name, "invalid_name")    
+                        send_message(frm, invalid_name, "invalid_name")
                 
                 if is_main == '1' and pincode is None:
                     pincode = resp1
                     logging.info(f'Processing pincode: {pincode}')
                     if pincode.isdigit() and len(pincode) == 6:
                         if check_pincode(pincode):
-                            cursor.execute("UPDATE users SET pincode = %s, main_menu = %s, is_main = %s WHERE phone_number = %s", 
-                                          (pincode, '1', '0', frm))
+                            cursor.execute(
+                                "UPDATE users SET pincode = %s, main_menu = '1', is_main = '0' WHERE phone_number = %s",
+                                (pincode, frm)
+                            )
                             cnx.commit()
                             logging.info('Calling send_multi_product_message')
                             result = send_multi_product_message(frm, CATALOG_ID, 'menu')
@@ -765,10 +790,12 @@ def Get_Message():
                 if is_temp == '1' and address is None:
                     logging.info(f"Processing address input: {resp1}")
                     if is_valid_address(resp1):
-                        address = resp1 
-                        cursor.execute("UPDATE users SET address = %s, is_submenu = %s WHERE phone_number = %s", (address, '1', frm))
+                        address = resp1
+                        cursor.execute(
+                            "UPDATE users SET address = %s, is_submenu = '1' WHERE phone_number = %s",
+                            (address, frm)
+                        )
                         cnx.commit()
-                        
                         order_summary, total, item_count = get_cart_summary(frm, name, address)
                         if item_count == 0:
                             send_message(frm, order_summary, "no_order")
@@ -785,7 +812,10 @@ def Get_Message():
                     logging.info(f"Processing address confirmation input: {resp1}, current address: {address}")
                     if resp1 == "6":  # Proceed with existing address
                         logging.info(f"User {frm} chose to proceed with existing address: {address}")
-                        cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
+                        cursor.execute(
+                            "UPDATE users SET is_submenu = '1' WHERE phone_number = %s",
+                            (frm,)
+                        )
                         cnx.commit()
                         order_summary, total, item_count = get_cart_summary(frm, name, address)
                         if item_count == 0:
@@ -798,12 +828,16 @@ def Get_Message():
                             interactive_template_with_2button(frm, order_summary, "order_summary")
                     elif resp1 == "7":  # Enter New Address
                         logging.info(f"User {frm} chose to enter new address")
-                        cursor.execute("UPDATE users SET address = NULL, is_temp = '1' WHERE phone_number = %s", (frm,))
+                        cursor.execute(
+                            "UPDATE users SET address = NULL, is_temp = '1' WHERE phone_number = %s",
+                            (frm,)
+                        )
                         cnx.commit()
                         send_message(frm, m3, "ask_address")
                     else:
                         logging.warning(f"Invalid response in address confirmation: {resp1} from {frm}")
-                        send_message(frm, "Invalid selection. Please choose 'Proceed' or 'Enter New Address'.", "invalid_selection")
+                        address_message = f"Hi *{name}*, 👋\n\nWe have your previous address:\n📍 {address}\n\nWould you like to proceed with this address or enter a new one?"
+                        interactive_template_with_address_buttons(frm, address_message, "address_confirmation")
                 
                 elif main_menu == '1' and msg_type == 'order':
                     logging.info("Entering product selection block")
@@ -816,6 +850,7 @@ def Get_Message():
                         
                         cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
                         cnx.commit()
+                        logging.info(f"Cleared cart for {frm}")
                         
                         logging.info(f"Selected product items: {product_items}")
                         
@@ -841,30 +876,27 @@ def Get_Message():
                         if valid_selection:
                             try:
                                 # Check for previous address in orders table for existing users
-                                if camp_id == '1':
+                                cursor.execute(
+                                    "SELECT address FROM orders WHERE user_phone = %s ORDER BY created_at DESC LIMIT 1",
+                                    (frm,)
+                                )
+                                previous_address = cursor.fetchone()
+                                if previous_address and is_valid_address(previous_address[0]):
                                     cursor.execute(
-                                        "SELECT address FROM orders WHERE user_phone = %s ORDER BY created_at DESC LIMIT 1",
+                                        "UPDATE users SET is_temp = '1', is_submenu = '0', address = %s WHERE phone_number = %s",
+                                        (previous_address[0], frm)
+                                    )
+                                    cnx.commit()
+                                    address_message = f"Hi *{name}*, 👋\n\nWe have your previous address:\n📍 {previous_address[0]}\n\nWould you like to proceed with this address or enter a new one?"
+                                    logging.info(f"Sending address confirmation to {frm} with previous address: {previous_address[0]}")
+                                    interactive_template_with_address_buttons(frm, address_message, "address_confirmation")
+                                else:
+                                    cursor.execute(
+                                        "UPDATE users SET is_temp = '1', is_submenu = '0', address = NULL WHERE phone_number = %s",
                                         (frm,)
                                     )
-                                    previous_address = cursor.fetchone()
-                                    if previous_address and is_valid_address(previous_address[0]):
-                                        cursor.execute(
-                                            "UPDATE users SET is_temp = '1', is_submenu = '0', address = %s WHERE phone_number = %s",
-                                            (previous_address[0], frm)
-                                        )
-                                        cnx.commit()
-                                        address_message = f"Hi *{name}*, 👋\n\nWe have your previous address:\n📍 {previous_address[0]}\n\nWould you like to proceed with this address or enter a new one?"
-                                        logging.info(f"Sending address confirmation to {frm} with previous address: {previous_address[0]}")
-                                        interactive_template_with_address_buttons(frm, address_message, "address_confirmation")
-                                    else:
-                                        cursor.execute("UPDATE users SET is_temp = '1', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
-                                        cnx.commit()
-                                        logging.info("No valid previous address found in orders table, asking for new address")
-                                        send_message(frm, m3, "ask_address")
-                                else:
-                                    cursor.execute("UPDATE users SET is_temp = '1', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
                                     cnx.commit()
-                                    logging.info("New user, asking for new address")
+                                    logging.info("No valid previous address found, asking for new address")
                                     send_message(frm, m3, "ask_address")
                             except Exception as e:
                                 logging.error(f"Database update failed: {e}")
@@ -882,28 +914,43 @@ def Get_Message():
                     logging.info(f"Processing submenu input: {resp1}")
                     if resp1 == "1":  # Confirm
                         logging.info("User confirmed order, sending payment options")
-                        cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
+                        cursor.execute(
+                            "UPDATE users SET is_submenu = '1' WHERE phone_number = %s",
+                            (frm,)
+                        )
                         cnx.commit()
                         interactive_template_with_3button(frm, "💳 Please select your preferred payment method to continue:", "payment")
                     elif resp1 == "2":  # Main Menu
                         logging.info("User selected Main Menu, resetting flags")
                         reset_user_flags(frm, cnx, cursor)
-                        cursor.execute("UPDATE users SET main_menu = '1' WHERE phone_number = %s", (frm,))
+                        cursor.execute(
+                            "UPDATE users SET main_menu = '1' WHERE phone_number = %s",
+                            (frm,)
+                        )
                         cnx.commit()
                         send_multi_product_message(frm, CATALOG_ID, "menu")
                     else:
                         payment_method = {"3": "COD", "5": "Pay Now"}.get(resp1)
                         if payment_method:
                             logging.info(f"User selected payment method: {payment_method}")
-                            cursor.execute("UPDATE users SET payment_method = %s WHERE phone_number = %s", (payment_method, frm))
+                            cursor.execute(
+                                "UPDATE users SET payment_method = %s WHERE phone_number = %s",
+                                (payment_method, frm)
+                            )
                             cnx.commit()
-                            cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (frm,))
+                            cursor.execute(
+                                "SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s",
+                                (frm,)
+                            )
                             cart_items = cursor.fetchall()
                             logging.info(f"Cart items for checkout: {cart_items}")
                             if not cart_items:
-                                logging.warning("No valid order details in user_cart table")
+                                logging.warning(f"No valid order details in user_cart for {frm}")
                                 send_message(frm, "No order details found! Please select a combo to proceed.", "no_order")
-                                cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                cursor.execute(
+                                    "UPDATE users SET payment_method = NULL WHERE phone_number = %s",
+                                    (frm,)
+                                )
                                 cnx.commit()
                                 cnx.close()
                                 return 'Success'
@@ -911,43 +958,37 @@ def Get_Message():
                             total_amount = sum(float(item[3]) * item[2] for item in cart_items)
                             items = [(item[0], item[1], float(item[3]), item[2]) for item in cart_items]
                             
+                            order_id = f"order_{uuid.uuid4().hex[:8]}"
+                            
                             if payment_method == "COD":
-                                logging.info(f"Processing COD checkout for user {frm}")
-                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor)
+                                logging.info(f"Processing COD checkout for user {frm}, order_id: {order_id}")
+                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, order_id)
                                 if checkout_result["total"] == 0:
-                                    logging.error(f"Checkout failed during COD for user {frm}: {checkout_result['message']}")
+                                    logging.error(f"Checkout failed for user {frm}: {checkout_result['message']}")
                                     send_message(frm, checkout_result["message"], "invalid_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                    cursor.execute(
+                                        "UPDATE users SET payment_method = NULL WHERE phone_number = %s",
+                                        (frm,)
+                                    )
                                     cnx.commit()
                                     cnx.close()
                                     return 'Success'
                                 
-                                cursor.execute(
-                                    "SELECT id, combo_id, combo_name, quantity, price, total_amount, payment_method, order_status, created_at "
-                                    "FROM orders WHERE user_phone = %s",
-                                    (frm,)
-                                )
-                                all_orders = cursor.fetchall()
-                                logging.info(f"All orders for {frm} before confirmation: {all_orders}")
-                                
+                                # Fetch only the current order's items
                                 cursor.execute(
                                     "SELECT combo_id, combo_name, price, quantity, total_amount, address "
-                                    "FROM orders WHERE user_phone = %s AND payment_method = 'COD' AND order_status = 'Placed' "
-                                    "ORDER BY created_at DESC",
-                                    (frm,)
+                                    "FROM orders WHERE user_phone = %s AND order_id = %s",
+                                    (frm, order_id)
                                 )
                                 items = cursor.fetchall()
-                                logging.info(f"Orders for confirmation: {items}")
+                                logging.info(f"Order items for confirmation: {items}")
                                 if not items:
+                                    logging.error(f"No items found for order_id {order_id} for {frm}")
+                                    send_message(frm, "Error: No order found. Please try again.", "no_order")
                                     cursor.execute(
-                                        "SELECT combo_id, combo_name, price, quantity, total_amount, address, payment_method, order_status "
-                                        "FROM orders WHERE user_phone = %s ORDER BY created_at DESC",
+                                        "UPDATE users SET payment_method = NULL WHERE phone_number = %s",
                                         (frm,)
                                     )
-                                    fallback_items = cursor.fetchall()
-                                    logging.info(f"Fallback query results for {frm}: {fallback_items}")
-                                    send_message(frm, "Error: No order found. Please try again.", "no_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
                                     cnx.commit()
                                     cnx.close()
                                     return 'Success'
@@ -965,38 +1006,44 @@ def Get_Message():
                                 confirmation += f"🚚 Delivery Schedule: Your order will be delivered to your doorstep by tomorrow 9 AM.\n\n"
                                 confirmation += f"We appreciate your support for fresh, sustainable produce. If you’ve any questions, reach out!\n\nBest regards,\nThe Balutedaar Team"
                                 logging.info(f"Sending COD confirmation to {frm}")
-                                cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
+                                
+                                # Reset flags and clear cart after order
+                                reset_user_flags(frm, cnx, cursor)
+                                cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
                                 cnx.commit()
                                 send_message(frm, confirmation, "order_confirmation")
                                 cnx.close()
                                 return 'Success'
                             elif payment_method == "Pay Now":
-                                logging.info(f"Processing Pay Now for user {frm}")
-                                reference_id = f"q9{uuid.uuid4().hex[:8]}"
-                                logging.info(f"Generated reference_id: {reference_id}")
-                                
-                                logging.info(f"Calling checkout for Pay Now, user: {frm}")
-                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
+                                logging.info(f"Processing Pay Now for user {frm}, order_id: {order_id}")
+                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, order_id)
                                 if checkout_result["total"] == 0:
-                                    logging.error(f"Checkout failed during Pay Now for user {frm}: {checkout_result['message']}")
+                                    logging.error(f"Checkout failed for user {frm}: {checkout_result['message']}")
                                     send_message(frm, checkout_result["message"], "invalid_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                    cursor.execute(
+                                        "UPDATE users SET payment_method = NULL WHERE phone_number = %s",
+                                        (frm,)
+                                    )
                                     cnx.commit()
-                                cnx.close()
-                                return 'Success'
+                                    cnx.close()
+                                    return 'Success'
                                 
                                 logging.info(f"Sending payment link for user {frm}")
-                                payment_url = send_payment_message(frm, name, address, pincode, items, total_amount, reference_id)
+                                payment_url = send_payment_message(frm, name, address, pincode, items, total_amount, order_id)
                                 if not payment_url:
                                     logging.error(f"Failed to generate payment link for user {frm}")
                                     send_message(frm, "Error generating payment link. Please try again.", "payment_error")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                    cursor.execute(
+                                        "UPDATE users SET payment_method = NULL WHERE phone_number = %s",
+                                        (frm,)
+                                    )
                                     cnx.commit()
                                     cnx.close()
                                     return 'Success'
                                 
                                 logging.info(f"Payment link sent successfully to {frm}: {payment_url}")
-                                cursor.execute("UPDATE users SET is_submenu = '0' WHERE phone_number = %s", (frm,))
+                                reset_user_flags(frm, cnx, cursor)
+                                cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
                                 cnx.commit()
                                 cnx.close()
                                 return 'Success'
@@ -1011,6 +1058,7 @@ def Get_Message():
             cnx.rollback()
             cnx.close()
         return jsonify({"error": str(e)}), 400
+
 
 # @app.route('/', methods=['POST', 'GET'])
 # def Get_Message():
