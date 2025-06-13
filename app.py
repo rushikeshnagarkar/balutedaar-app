@@ -605,14 +605,6 @@ def interactive_template_with_address_buttons(rcvr, body, message):
         logging.error(f"Interactive address buttons failed: {e}, Response: {response.text if 'response' in locals() else 'No response'}")
         return None
         
-import re
-import uuid
-import pymysql
-import logging
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
 
 @app.route('/', methods=['POST', 'GET'])
 def Get_Message():
