@@ -711,7 +711,7 @@ def Get_Message():
                     logging.info(f"Existing user {frm} detected, name: {name}")
                     if name:
                         reset_user_flags(frm, cnx, cursor)
-                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1', is_temp = '0', is_submenu = '0', main_menu = '0', address = NULL WHERE phone_number = %s", (frm,))
+                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         logging.info(f"Reset flags and set is_main for user {frm}")
                         send_message(frm, r2.format(name=name), 'pincode')
@@ -847,7 +847,7 @@ def Get_Message():
                                     previous_address = cursor.fetchone()
                                     if previous_address and is_valid_address(previous_address[0]):
                                         cursor.execute(
-                                            "UPDATE users SET is_temp = '1', is_submenu = '0', address = %s WHERE phone_number = %s",
+                                            "UPDATE users SET is_temp = '0', is_submenu = '0', address = %s WHERE phone_number = %s",
                                             (previous_address[0], frm)
                                         )
                                         cnx.commit()
@@ -855,12 +855,12 @@ def Get_Message():
                                         logging.info(f"Sending address confirmation to {frm} with previous address: {previous_address[0]}")
                                         interactive_template_with_address_buttons(frm, address_message, "address_confirmation")
                                     else:
-                                        cursor.execute("UPDATE users SET is_temp = '1', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
+                                        cursor.execute("UPDATE users SET is_temp = '0', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
                                         cnx.commit()
                                         logging.info("No valid previous address found in orders table, asking for new address")
                                         send_message(frm, m3, "ask_address")
                                 else:
-                                    cursor.execute("UPDATE users SET is_temp = '1', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
+                                    cursor.execute("UPDATE users SET is_temp = '0', is_submenu = '0', address = NULL WHERE phone_number = %s", (frm,))
                                     cnx.commit()
                                     logging.info("New user, asking for new address")
                                     send_message(frm, m3, "ask_address")
@@ -1010,7 +1010,6 @@ def Get_Message():
             cnx.rollback()
             cnx.close()
         return jsonify({"error": str(e)}), 400
-
 # @app.route('/', methods=['POST', 'GET'])
 # def Get_Message():
 #     cnx = None
