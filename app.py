@@ -711,7 +711,7 @@ def Get_Message():
                     logging.info(f"Existing user {frm} detected, name: {name}")
                     if name:
                         reset_user_flags(frm, cnx, cursor)
-                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1', is_temp = '0', is_submenu = '0', main_menu = '0' WHERE phone_number = %s", (frm,))
+                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1', is_temp = '0', is_submenu = '0', main_menu = '0', address = NULL WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         logging.info(f"Reset flags and set is_main for user {frm}")
                         send_message(frm, r2.format(name=name), 'pincode')
@@ -980,8 +980,8 @@ def Get_Message():
                                     send_message(frm, checkout_result["message"], "invalid_order")
                                     cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
                                     cnx.commit()
-                                cnx.close()
-                                return 'Success'
+                                    cnx.close()
+                                    return 'Success'
                                 
                                 logging.info(f"Sending payment link for user {frm}")
                                 payment_url = send_payment_message(frm, name, address, pincode, items, total_amount, reference_id)
@@ -994,7 +994,8 @@ def Get_Message():
                                     return 'Success'
                                 
                                 logging.info(f"Payment link sent successfully to {frm}: {payment_url}")
-                                cursor.execute("UPDATE users SET is_submenu = '0' WHERE phone_number = %s", (frm,))
+                                reset_user_flags(frm, cnx, cursor)
+                                cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
                                 cnx.commit()
                                 cnx.close()
                                 return 'Success'
