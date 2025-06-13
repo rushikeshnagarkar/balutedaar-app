@@ -692,50 +692,50 @@ def Get_Message():
 
         if (msg_type == 'text' or msg_type == 'interactive' or msg_type == 'order') and len(frm) == 12:
             if resp1 in greeting_word:
-                    if result is None:  # New user
-                        profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
-                        if profile_name and is_valid_name(profile_name):
-                            name = profile_name
-                            cursor.execute(
-                                "INSERT INTO users (phone_number, camp_id, is_valid, name, is_main) VALUES (%s, %s, %s, %s, %s)",
-                                (frm, '1', '1', name, '1')
-                            )
-                            cnx.commit()
-                            logging.info(f"Inserted new user {frm} with WhatsApp profile name: {name}")
-                            send_message(frm, wl.format(name=name), 'pincode')
-                        else:
-                            cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", 
-                                          (frm, '1', '1', '1'))
-                            cnx.commit()
-                            logging.info(f"Inserted new user {frm}, no valid profile name, asking for name")
-                            send_message(frm, wl_fallback, 'welcome message')
-            else:  # Existing user
-                logging.info(f"Existing user {frm} detected, name: {name}")
-                if name:
-                    reset_user_flags(frm, cnx, cursor)
-                    cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
-                    cnx.commit()
-                    logging.info(f"Reset flags and set is_main for user {frm}")
-                    send_message(frm, r2.format(name=name), 'pincode')
-                else:
+                if result is None:  # New user
                     profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
                     if profile_name and is_valid_name(profile_name):
                         name = profile_name
                         cursor.execute(
-                            "UPDATE users SET name = %s, is_main = %s, is_valid = %s WHERE phone_number = %s",
-                            (name, '1', '1', frm)
+                            "INSERT INTO users (phone_number, camp_id, is_valid, name, is_main) VALUES (%s, %s, %s, %s, %s)",
+                            (frm, '1', '1', name, '1')
                         )
                         cnx.commit()
-                        logging.info(f"Updated user {frm} with WhatsApp profile name: {name}")
+                        logging.info(f"Inserted new user {frm} with WhatsApp profile name: {name}")
+                        send_message(frm, wl.format(name=name), 'pincode')
+                    else:
+                        cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info) VALUES (%s, %s, %s, %s)", 
+                                      (frm, '1', '1', '1'))
+                        cnx.commit()
+                        logging.info(f"Inserted new user {frm}, no valid profile name, asking for name")
+                        send_message(frm, wl_fallback, 'welcome message')
+                else:  # Existing user
+                    logging.info(f"Existing user {frm} detected, name: {name}")
+                    if name:
+                        reset_user_flags(frm, cnx, cursor)
+                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                        cnx.commit()
+                        logging.info(f"Reset flags and set is_main for user {frm}")
                         send_message(frm, r2.format(name=name), 'pincode')
                     else:
-                        cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        send_message(frm, wl_fallback, 'welcome message')
+                        profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
+                        if profile_name and is_valid_name(profile_name):
+                            name = profile_name
+                            cursor.execute(
+                                "UPDATE users SET name = %s, is_main = %s, is_valid = %s WHERE phone_number = %s",
+                                (name, '1', '1', frm)
+                            )
+                            cnx.commit()
+                            logging.info(f"Updated user {frm} with WhatsApp profile name: {name}")
+                            send_message(frm, r2.format(name=name), 'pincode')
+                        else:
+                            cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                            cnx.commit()
+                            send_message(frm, wl_fallback, 'welcome message')
             
             if camp_id == '1':
                 if is_info == '1' and pincode is None:
-                    if all(x.isalpha() or x.isspace() for x in resp1) and is_valid_name(resp1):
+                    if is_valid_name(resp1):
                         logging.info("Accepting name")
                         name = resp1
                         cursor.execute("UPDATE users SET name = %s, is_main = %s, is_info = %s WHERE phone_number = %s", 
@@ -982,8 +982,8 @@ def Get_Message():
                                     send_message(frm, checkout_result["message"], "invalid_order")
                                     cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
                                     cnx.commit()
-                                    cnx.close()
-                                    return 'Success'
+                                cnx.close()
+                                return 'Success'
                                 
                                 logging.info(f"Sending payment link for user {frm}")
                                 payment_url = send_payment_message(frm, name, address, pincode, items, total_amount, reference_id)
