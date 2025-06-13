@@ -495,12 +495,16 @@ def reset_user_flags(frm, cnx, cursor):
         print(f"Reset flags failed: {e}")
         cnx.rollback()
 
-def is_valid_name(resp1):
-    if resp1 in greeting_word:
+def is_valid_name(name):
+    """
+    Validate a name to allow letters, numbers, and spaces, but no special characters.
+    Returns True if valid, False otherwise.
+    """
+    if not name or len(name.strip()) == 0:
         return False
-    if not re.match(r'^[\u0900-\u097Fa-zA-Z0-9\s]+$', resp1):
-        return False
-    return True
+    # Allow letters (a-z, A-Z), numbers (0-9), and spaces; reject special characters
+    pattern = r'^[a-zA-Z0-9\s]+$'
+    return bool(re.match(pattern, name))
 
 def is_valid_address(address):
     address = address.strip()
