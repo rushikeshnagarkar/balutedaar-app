@@ -104,14 +104,14 @@ Please enter a *6-digit pincode* (e.g., 411038). 📍'''
 CATALOG_ID = "1221166119417288"
 
 FALLBACK_COMBOS = {
-    "D-9011": {"name": "Amaranth Combo", "price": 100.00}, 
-    "A-9011": {"name": "Methi Combo", "price": 100.00},
-    "E-9011": {"name": "Dill Combo", "price": 100.00},
-    "B-9011": {"name": "Kanda Paat Combo", "price": 100.00},
-    "C-9011": {"name": "Palak Combo", "price": 100.00},
-    "xzwqdyrcl9": {"name": "Spinach - पालक", "price": 100.00},
-    "7e8sbb1xg8": {"name": "Fenugreek - मेथी", "price": 100.00},
-    "dm4ngkc9xr": {"name": "Amaranth - लाल माठ", "price": 100.00}
+    "D-9011": {"name": "Amaranth Combo", "price": 225.00}, 
+    "A-9011": {"name": "Methi Combo", "price": 180.00},
+    "E-9011": {"name": "Dill Combo", "price": 111.00},
+    "B-9011": {"name": "Kanda Paat Combo", "price": 150.00},
+    "C-9011": {"name": "Palak Combo", "price": 210.00},
+    "xzwqdyrcl9": {"name": "Spinach - पालक", "price": 400.00},
+    "7e8sbb1xg8": {"name": "Fenugreek - मेथी", "price": 370.00},
+    "dm4ngkc9xr": {"name": "Amaranth - लाल माठ", "price": 380.00}
 }
 
 def generate_referral_code(user_phone):
