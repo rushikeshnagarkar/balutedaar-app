@@ -1073,7 +1073,7 @@ def Get_Message():
                                     f"🥕 ₹50 Balutedaar Points per friend\n"
                                     f"🥬 Friends get 10% OFF\n"
                                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
+                                    f"📤 Tap to Share:  https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
                                 )
                                 send_message(frm, gamified_prompt, "gamified_prompt")
                                 cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
