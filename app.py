@@ -104,14 +104,14 @@ Please enter a *6-digit pincode* (e.g., 411038). 📍'''
 CATALOG_ID = "1221166119417288"
 
 FALLBACK_COMBOS = {
-    "D-9011": {"name": "Amaranth Combo", "price": 100.00}, 
-    "A-9011": {"name": "Methi Combo", "price": 100.00},
-    "E-9011": {"name": "Dill Combo", "price": 100.00},
-    "B-9011": {"name": "Kanda Paat Combo", "price": 100.00},
-    "C-9011": {"name": "Palak Combo", "price": 100.00},
-    "xzwqdyrcl9": {"name": "Spinach - पालक", "price": 100.00},
-    "7e8sbb1xg8": {"name": "Fenugreek - मेथी", "price": 100.00},
-    "dm4ngkc9xr": {"name": "Amaranth - लाल माठ", "price": 100.00}
+    "D-9011": {"name": "Amaranth Combo", "price": 225.00}, 
+    "A-9011": {"name": "Methi Combo", "price": 180.00},
+    "E-9011": {"name": "Dill Combo", "price": 111.00},
+    "B-9011": {"name": "Kanda Paat Combo", "price": 150.00},
+    "C-9011": {"name": "Palak Combo", "price": 210.00},
+    "xzwqdyrcl9": {"name": "Spinach - पालक", "price": 400.00},
+    "7e8sbb1xg8": {"name": "Fenugreek - मेथी", "price": 370.00},
+    "dm4ngkc9xr": {"name": "Amaranth - लाल माठ", "price": 380.00}
 }
 
 def generate_referral_code(user_phone):
@@ -1071,7 +1071,7 @@ def Get_Message():
                                     f"🥕 ₹50 Balutedaar Points per friend\n"
                                     f"🥬 Friends get 10% OFF\n"
                                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                                    f"📤 Tap to Share: [https://wa.me/+919012345678?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
+                                    f"📤 Tap to Share: [https://wa.me/+918505053636?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
                                 )
                                 send_message(frm, gamified_prompt, "gamified_prompt")
                                 cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
@@ -1161,7 +1161,7 @@ def payment_callback():
                     f"🥕 ₹50 Balutedaar Points per friend\n"
                     f"🥬 Friends get 10% OFF\n"
                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                    f"📤 Tap to Share: [https://wa.me/+919012345678?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
+                    f"📤 Tap to Share: https://wa.me/+919012345678?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies"
                 )
                 send_message(frm, gamified_prompt, "gamified_prompt")
             
