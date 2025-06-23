@@ -104,14 +104,14 @@ Please enter a *6-digit pincode* (e.g., 411038). 📍'''
 CATALOG_ID = "1221166119417288"
 
 FALLBACK_COMBOS = {
-    "D-9011": {"name": "Amaranth Combo", "price": 225.00}, 
-    "A-9011": {"name": "Methi Combo", "price": 180.00},
-    "E-9011": {"name": "Dill Combo", "price": 111.00},
-    "B-9011": {"name": "Kanda Paat Combo", "price": 150.00},
-    "C-9011": {"name": "Palak Combo", "price": 210.00},
-    "xzwqdyrcl9": {"name": "Spinach - पालक", "price": 400.00},
-    "7e8sbb1xg8": {"name": "Fenugreek - मेथी", "price": 370.00},
-    "dm4ngkc9xr": {"name": "Amaranth - लाल माठ", "price": 380.00}
+    "D-9011": {"name": "Amaranth Combo", "price": 100.00}, 
+    "A-9011": {"name": "Methi Combo", "price": 100.00},
+    "E-9011": {"name": "Dill Combo", "price": 100.00},
+    "B-9011": {"name": "Kanda Paat Combo", "price": 100.00},
+    "C-9011": {"name": "Palak Combo", "price": 100.00},
+    "xzwqdyrcl9": {"name": "Spinach - पालक", "price": 100.00},
+    "7e8sbb1xg8": {"name": "Fenugreek - मेथी", "price": 100.00},
+    "dm4ngkc9xr": {"name": "Amaranth - लाल माठ", "price": 100.00}
 }
 
 def generate_referral_code(user_phone):
@@ -249,7 +249,7 @@ def send_monthly_referral_update():
                 f"👥 Friends Referred: {referral_count}\n"
                 f"💰 Points Earned: ₹{points_earned}\n"
                 f"🎁 Status: {status_message}\n"
-                f"📤 Share {new_code}: https://wa.me/+918505053636?text=Use+my+code+{new_code}+to+get+fresh+veggies!"
+                f"📤 Share {new_code}: [https://wa.me/+918505053636?text=Use+my+code+{new_code}+to+get+fresh+veggies!]\n"
                 f"👉 Type ‘My Rewards’ to redeem points or track progress."
             )
             send_message(user_phone, message, "monthly_update")
@@ -304,7 +304,7 @@ def send_referral_prompt_with_button(rcvr, body, message):
         logging.error(f"Failed to send referral prompt to {rcvr}: {e}, Response: {getattr(e.response, 'text', 'No response')}, Status: {getattr(e.response, 'status_code', 'Unknown')}")
         return None
         
-        
+
 def send_message(rcvr, body, message):
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
     if not rcvr.startswith('+'):
@@ -1064,8 +1064,7 @@ def Get_Message():
                                 confirmation += f"🚚 Delivery Schedule: Your order will be delivered to your doorstep by tomorrow 9 AM.\n\n"
                                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn ₹50 per order they place!\n\n"
                                 confirmation += f"We appreciate your support for fresh, sustainable produce. If you’ve any questions, reach out!\n\nBest regards,\nThe Balutedaar Team"
-                                # After sending the confirmation message
-                               send_message(frm, confirmation, "order_confirmation")
+                                send_message(frm, confirmation, "order_confirmation")
                                 gamified_prompt = (
                                     f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
                                     f"Share your code {new_referral_code} with up to 5 friends this month and get:\n"
@@ -1155,15 +1154,14 @@ def payment_callback():
                 confirmation += f"🚚 Your order will be delivered by tomorrow 9 AM.\n\n"
                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn ₹50 per order they place!\n\n"
                 confirmation += "We appreciate your support for fresh, sustainable produce!\nBest regards,\nThe Balutedaar Team"
-                send_message(frm, confirmation, "order_confirmation")
-                new_referral_code = generate_referral_code(rcvr)
+                send_message(frm, confirmation, "payment_confirmation")
                 gamified_prompt = (
                     f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
                     f"Share your code {new_referral_code} with up to 5 friends this month and get:\n"
                     f"🥕 ₹50 Balutedaar Points per friend\n"
                     f"🥬 Friends get 10% OFF\n"
                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
+                    f"📤 Tap to Share: [https://wa.me/+918505053636?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
                 )
                 send_message(frm, gamified_prompt, "gamified_prompt")
             
