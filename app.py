@@ -271,32 +271,39 @@ def send_referral_prompt_with_button(rcvr, body, message):
         "enable_acculync": False,
         "extra": message,
         "media": {
-            "type": "interactive_buttons",
+            "type": "interactive_list",
             "body": body,
-            "buttons": [
+            "button_text": "Choose an Option",
+            "button": [
                 {
-                    "type": "reply",
-                    "reply": {
-                        "id": "skip_button",
-                        "title": "Skip"
-                    }
+                    "section_title": "Referral Options",
+                    "row": [
+                        {
+                            "id": "skip_button",
+                            "title": "Skip",
+                            "description": "Skip referral and browse combos"
+                        }
+                    ]
                 }
             ]
         }
     })
     headers = {
         'Content-Type': 'application/json',
-        'Authorization': authkey,
+        'Authorization': authkey,  # Update to 'Bearer {authkey}' if required
         'referer': 'https://myaccount.rmlconnect.net/'
     }
     try:
+        logging.debug(f"Sending referral prompt to {rcvr} with payload: {payload}")
         response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
         response.raise_for_status()
+        logging.debug(f"Referral prompt sent successfully to {rcvr}, response: {response.text}")
         savesentlog(rcvr, response.text, response.status_code, message)
         return response.text
     except requests.RequestException as e:
-        logging.error(f"Failed to send referral prompt with button: {e}")
+        logging.error(f"Failed to send referral prompt to {rcvr}: {e}, Response: {getattr(e.response, 'text', 'No response')}, Status: {getattr(e.response, 'status_code', 'Unknown')}")
         return None
+        
         
 def send_message(rcvr, body, message):
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
