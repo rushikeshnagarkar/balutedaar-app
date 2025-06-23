@@ -262,12 +262,12 @@ def send_monthly_referral_update():
         cnx.close()
         return {"status": "error", "message": str(e)}
 
-def send_referral_prompt_with_button(user_id, body, message):
+def send_referral_prompt_with_button(rcvr, body, message):
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-    if not user_id.startswith('+'):
-        user_id = f"+91{user_id.strip()[-10:]}"
+    if not rcvr.startswith('+'):
+        rcvr = f"+91{rcvr.strip()[-10:]}"
     payload = json.dumps({
-        "phone": user_id,
+        "phone": rcvr,
         "enable_acculync": False,
         "extra": message,
         "media": {
@@ -292,12 +292,12 @@ def send_referral_prompt_with_button(user_id, body, message):
     try:
         response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
         response.raise_for_status()
-        savesentlog(user_id, response.text, response.status_code, message)
+        savesentlog(rcvr, response.text, response.status_code, message)
         return response.text
     except requests.RequestException as e:
         logging.error(f"Failed to send referral prompt with button: {e}")
         return None
-
+        
 def send_message(rcvr, body, message):
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
     if not rcvr.startswith('+'):
