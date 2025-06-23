@@ -249,7 +249,7 @@ def send_monthly_referral_update():
                 f"👥 Friends Referred: {referral_count}\n"
                 f"💰 Points Earned: ₹{points_earned}\n"
                 f"🎁 Status: {status_message}\n"
-                f"📤 Share {new_code}: [https://wa.me/+918505053636?text=Use+my+code+{new_code}+to+get+fresh+veggies!]\n"
+                f"📤 Share {new_code}: https://wa.me/+918505053636?text=Use+my+code+{new_code}+to+get+fresh+veggies!"
                 f"👉 Type ‘My Rewards’ to redeem points or track progress."
             )
             send_message(user_phone, message, "monthly_update")
@@ -1154,14 +1154,15 @@ def payment_callback():
                 confirmation += f"🚚 Your order will be delivered by tomorrow 9 AM.\n\n"
                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn ₹50 per order they place!\n\n"
                 confirmation += "We appreciate your support for fresh, sustainable produce!\nBest regards,\nThe Balutedaar Team"
-                send_message(frm, confirmation, "payment_confirmation")
+                send_message(frm, confirmation, "order_confirmation")
+                new_referral_code = generate_referral_code(rcvr)
                 gamified_prompt = (
                     f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
                     f"Share your code {new_referral_code} with up to 5 friends this month and get:\n"
                     f"🥕 ₹50 Balutedaar Points per friend\n"
                     f"🥬 Friends get 10% OFF\n"
                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                    f"📤 Tap to Share: https://wa.me/+918505053636?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies"
+                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
                 )
                 send_message(frm, gamified_prompt, "gamified_prompt")
             
