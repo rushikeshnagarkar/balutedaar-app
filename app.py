@@ -249,7 +249,7 @@ def send_monthly_referral_update():
                 f"👥 Friends Referred: {referral_count}\n"
                 f"💰 Points Earned: ₹{points_earned}\n"
                 f"🎁 Status: {status_message}\n"
-                f"📤 Share {new_code}: [https://wa.me/+919012345678?text=Use+my+code+{new_code}+to+get+fresh+veggies!]\n"
+                f"📤 Share {new_code}: [https://wa.me/+918505053636?text=Use+my+code+{new_code}+to+get+fresh+veggies!]\n"
                 f"👉 Type ‘My Rewards’ to redeem points or track progress."
             )
             send_message(user_phone, message, "monthly_update")
@@ -1161,7 +1161,7 @@ def payment_callback():
                     f"🥕 ₹50 Balutedaar Points per friend\n"
                     f"🥬 Friends get 10% OFF\n"
                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                    f"📤 Tap to Share: https://wa.me/+919012345678?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies"
+                    f"📤 Tap to Share: https://wa.me/+918505053636?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies"
                 )
                 send_message(frm, gamified_prompt, "gamified_prompt")
             
