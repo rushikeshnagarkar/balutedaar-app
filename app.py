@@ -1008,7 +1008,7 @@ def Get_Message():
                             send_message(frm, order_summary, "no_order")
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
                         else:
-                            order_summary += "\n\nPlease confirm your order, redeem points with 'Redeem', or go back to the menu to make changes."
+                            order_summary += "\n\nPlease confirm your order."
                             interactive_template_with_2button(frm, order_summary, "order_summary")
                     else:
                         send_message(frm, invalid_address, 'invalid_address')
@@ -1022,7 +1022,7 @@ def Get_Message():
                             send_message(frm, order_summary, "no_order")
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
                         else:
-                            order_summary += "\n\nPlease confirm your order, redeem points with 'Redeem', or go back to the menu to make changes."
+                            order_summary += "\n\nPlease confirm your order."
                             interactive_template_with_2button(frm, order_summary, "order_summary")
                     elif resp1 == "7":
                         cursor.execute("UPDATE users SET address = NULL, is_temp = '1' WHERE phone_number = %s", (frm,))
@@ -1066,123 +1066,73 @@ def Get_Message():
                         send_multi_product_message(frm, CATALOG_ID, 'menu')
                 
                 elif is_submenu == '1' and payment_method is None:
-                    if resp1 == "1":
-                        cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        order_summary, total, item_count = get_cart_summary(frm, name, address)
-                        if item_count == 0:
-                            send_message(frm, order_summary, "no_order")
+                    if resp1 == "1":  # User clicked "Confirm"
+                        cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (frm,))
+                        cart_items = cursor.fetchall()
+                        if not cart_items:
+                            send_message(frm, "No order details found! Please select a combo to proceed.", "no_order")
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
+                            reset_user_flags(frm, cnx, cursor)
+                            cnx.commit()
                         else:
-                            order_summary += "\n\nPlease confirm your order, redeem points with 'Redeem', or go back to the menu to make changes."
-                            interactive_template_with_2button(frm, order_summary, "order_summary")
-                    elif resp1 == "2":
-                        reset_user_flags(frm, cnx, cursor)
-                        cursor.execute("UPDATE users SET main_menu = '1' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        send_multi_product_message(frm, CATALOG_ID, "menu")
-                    elif resp1.lower() == 'redeem':
-                        cursor.execute("SELECT balutedaar_points FROM users WHERE phone_number = %s", (frm,))
-                        points = cursor.fetchone()[0] or 0
-                        cursor.execute("SELECT SUM(price * quantity) FROM user_cart WHERE phone_number = %s", (frm,))
-                        order_total = cursor.fetchone()[0] or 0
-                        if points > 0:
-                            discount = min(points, order_total)
-                            remaining_points = points - discount
-                            cursor.execute("UPDATE users SET balutedaar_points = %s WHERE phone_number = %s", (remaining_points, frm))
                             order_summary, total, item_count = get_cart_summary(frm, name, address)
-                            total -= discount
-                            order_summary += f"\n🎁 Points Redeemed: -₹{discount:.2f}\n💰 Total Amount: ₹{total:.2f}"
-                            if total == 0:
-                                checkout_result = checkout(frm, name, address, pincode, 'COD', cnx, cursor)
-                                send_message(frm, checkout_result["message"] + f"\n🎁 Points remaining: ₹{remaining_points:.2f}", "order_confirmation")
-                            else:
-                                interactive_template_with_2button(frm, order_summary, "order_summary")
-                        else:
-                            send_message(frm, "No points available to redeem.", "no_points")
+                            cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
+                            cnx.commit()
+                            payment_prompt = f"Hi *{name}*, 👋\n\n{order_summary}\n\n💳 Please select your payment method:"
+                            interactive_template_with_3button(frm, payment_prompt, "payment")
+                    else:
+                        send_message(frm, "Please select 'Confirm' to proceed.", "invalid_input")
+                
+                elif payment_method is None and resp1 in ["3", "5"]:  # COD or Pay Now
+                    payment_method = "COD" if resp1 == "3" else "Pay Now"
+                    cursor.execute("UPDATE users SET payment_method = %s WHERE phone_number = %s", (payment_method, frm))
+                    cnx.commit()
+                    checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor)
+                    if checkout_result["total"] == 0:
+                        send_message(frm, checkout_result["message"], "invalid_order")
+                        cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
                         cnx.commit()
                     else:
-                        payment_method = {"3": "COD", "5": "Pay Now"}.get(resp1)
-                        if payment_method:
-                            cursor.execute("UPDATE users SET payment_method = %s WHERE phone_number = %s", (payment_method, frm))
-                            cnx.commit()
-                            cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (frm,))
-                            cart_items = cursor.fetchall()
-                            if not cart_items:
-                                send_message(frm, "No order details found! Please select a combo to proceed.", "no_order")
+                        total = checkout_result["total"]
+                        new_referral_code = checkout_result["referral_code"]
+                        if payment_method == "COD":
+                            confirmation = f"Dear *{name}*,\n\nThank you for your order with Balutedaar! Below is your order confirmation:\n\n📦 *Order Details*:\n"
+                            for item in cart_items:
+                                combo_id, combo_name, price, quantity = item
+                                subtotal = float(price) * quantity
+                                confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+                            discount_percent = 0
+                            if referral_code:
+                                cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
+                                usage_count = cursor.fetchone()[0]
+                                discount_percent = min(usage_count * 10, 50)
+                                if discount_percent > 0:
+                                    discount_amount = total * (discount_percent / 100)
+                                    confirmation += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
+                                    total = max(total - discount_amount, 0)
+                            confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
+                            confirmation += f"🚚 Delivery Schedule: Your order will be delivered by tomorrow 9 AM.\n\n"
+                            confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn rewards!\n\n"
+                            confirmation += "We appreciate your support for fresh, sustainable produce. If you’ve any questions, reach out!\nBest regards,\nThe Balutedaar Team"
+                            send_message(frm, confirmation, "order_confirmation")
+                            gamified_prompt = (
+                                f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
+                                f"Share your code *{new_referral_code}* with up to 5 friends this month and get:\n"
+                                f"🥕 ₹50 Balutedaar Points per friend\n"
+                                f"🥬 Friends get 10% OFF\n"
+                                f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
+                                f"📤 Tap to Share: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
+                            )
+                            send_message(frm, gamified_prompt, "gamified_prompt")
+                        else:  # Pay Now
+                            reference_id = f"q9{uuid.uuid4().hex[:8]}"
+                            payment_url = send_payment_message(frm, name, address, pincode, cart_items, total, reference_id, referral_code)
+                            if not payment_url:
+                                send_message(frm, "Error generating payment link. Please try again.", "payment_error")
                                 cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
                                 cnx.commit()
-                                cnx.close()
-                                return 'Success'
-                            
-                            total_amount = sum(float(item[3]) * item[2] for item in cart_items)
-                            items = [(item[0], item[1], float(item[3]), item[2]) for item in cart_items]
-                            
-                            if payment_method == "COD":
-                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor)
-                                if checkout_result["total"] == 0:
-                                    send_message(frm, checkout_result["message"], "invalid_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
-                                    cnx.commit()
-                                    cnx.close()
-                                    return 'Success'
-                                
-                                total = checkout_result["total"]
-                                new_referral_code = checkout_result["referral_code"]
-                                confirmation = f"Dear *{name}*,\n\nThank you for your order with Balutedaar! Below is your order confirmation:\n\n📦 *Order Details*:\n"
-                                for item in cart_items:
-                                    combo_id, combo_name, price, quantity = item
-                                    subtotal = float(price) * quantity
-                                    confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
-                                discount_percent = 0
-                                if referral_code:
-                                    cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
-                                    usage_count = cursor.fetchone()[0]
-                                    discount_percent = min(usage_count * 10, 50)
-                                    if discount_percent > 0:
-                                        discount_amount = total * (discount_percent / 100)
-                                        confirmation += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
-                                        total = max(total - discount_amount, 0)
-                                confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
-                                confirmation += f"🚚 Delivery Schedule: Your order will be delivered to your doorstep by tomorrow 9 AM.\n\n"
-                                confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn rewards!\n\n"
-                                confirmation += f"We appreciate your support for fresh, sustainable produce. If you’ve any questions, reach out!\n\nBest regards,\nThe Balutedaar Team"
-                                send_message(frm, confirmation, "order_confirmation")
-                                gamified_prompt = (
-                                    f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
-                                    f"Share your code *{new_referral_code}* with up to 5 friends this month and get:\n"
-                                    f"🥕 ₹50 Balutedaar Points per friend\n"
-                                    f"🥬 Friends get 10% OFF\n"
-                                    f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
-                                )
-                                send_message(frm, gamified_prompt, "gamified_prompt")
-                                cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
-                                cnx.commit()
-                                cnx.close()
-                                return 'Success'
-                            elif payment_method == "Pay Now":
-                                reference_id = f"q9{uuid.uuid4().hex[:8]}"
-                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
-                                if checkout_result["total"] == 0:
-                                    send_message(frm, checkout_result["message"], "invalid_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
-                                    cnx.commit()
-                                    cnx.close()
-                                    return 'Success'
-                                
-                                payment_url = send_payment_message(frm, name, address, pincode, items, checkout_result["total"], reference_id, referral_code)
-                                if not payment_url:
-                                    send_message(frm, "Error generating payment link. Please try again.", "payment_error")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
-                                    cnx.commit()
-                                    cnx.close()
-                                    return 'Success'
-                                
-                                cursor.execute("UPDATE users SET is_submenu = '0' WHERE phone_number = %s", (frm,))
-                                cnx.commit()
-                                cnx.close()
-                                return 'Success'
+                        cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
+                        cnx.commit()
 
         cnx.commit()
         cnx.close()
