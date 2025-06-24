@@ -51,7 +51,10 @@ m3 = '''🚚 Just one more step!
 Kindly share your complete delivery address so we can deliver your veggies without any delay.'''
 invalid_address = '''😕 Oops! That doesn’t look like a valid address. Please enter a complete address with house/flat number, street name, and area (e.g., Flat 101, Baner Road, Pune). Use letters, numbers, spaces, commas, periods, hyphens, or slashes only.'''
 invalid_name = '''⚠️ Please enter a valid name using alphabetic characters, numbers, or spaces only.'''
-invalid_referral = '''⚠️ Sorry, the referral code {code} is invalid, expired, or has reached its limit. Try another code or continue without one!'''
+referral_prompt = '''🧩 Got a referral code? Drop it now for an instant 10% welcome discount!
+
+Or click 'Skip' to browse our fresh veggie combos!'''
+invalid_referral = '''⚠️ Sorry, the referral code {code} is invalid, expired, or has reached its limit. Try another code or click 'Skip' to continue!'''
 referral_success = '''✅ Referral code accepted! 🎉 You’ve unlocked a tiered discount on your first order (up to 50% off based on referrals)!'''
 wl = '''Ram Ram Mandali 🙏
 
@@ -135,7 +138,7 @@ def generate_referral_code(user_phone):
         while True:
             code = "BALU" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
             cursor.execute("SELECT COUNT(*) FROM referral_codes WHERE referral_code = %s", (code,))
-            if cursor.fetchone()[0] == 0:
+            if cursor.fetchone()[0]0] == 0:
                 break
         created_at = datetime.now()
         expiration_date = created_at + timedelta(days=30)
@@ -315,6 +318,48 @@ def send_monthly_referral_update():
         cnx.rollback()
         cnx.close()
         return {"status": "error", "message": str(e)}
+
+def send_referral_prompt_with_button(rcvr, body, message):
+    url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
+    if not rcvr.startswith('+'):
+        rcvr = f"+91{rcvr.strip()[-10:]}"
+    payload = json.dumps({
+        "phone": rcvr,
+        "enable_acculync": False,
+        "extra": message,
+        "media": {
+            "type": "interactive_list",
+            "body": body,
+            "button_text": "Choose an Option",
+            "button": [
+                {
+                    "section_title": "Referral Options",
+                    "row": [
+                        {
+                            "id": "skip_button",
+                            "title": "Skip",
+                            "description": "Skip referral and browse combos"
+                        }
+                    ]
+                }
+            ]
+        }
+    })
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': authkey,
+        'referer': 'https://myaccount.rmlconnect.net/'
+    }
+    try:
+        logging.debug(f"Sending referral prompt to {rcvr} with payload: {payload}")
+        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
+        response.raise_for_status()
+        logging.debug(f"Referral prompt sent successfully to {rcvr}, response: {response.text}")
+        savesentlog(rcvr, response.text, response.status_code, message)
+        return response.text
+    except requests.RequestException as e:
+        logging.error(f"Failed to send referral prompt to {rcvr}: {e}, Response: {getattr(e.response, 'text', 'No response')}, Status: {getattr(e.response, 'status_code', 'Unknown')}")
+        return None
 
 def send_message(rcvr, body, message):
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
@@ -659,20 +704,19 @@ def get_combo_name(combo_id):
         cursor.execute("SELECT combo_name FROM combos WHERE combo_id = %s", (combo_id,))
         result = cursor.fetchone()
         cnx.close()
-        return result[0] if result else FALLBACK_COMBOS.get(combo_id, {}).get("name", "").strip()
+        return result[0] if result else FALLBACK_COMBOS.get(combo_id, {}).get("name", "Unknown Combo")
     except Exception as e:
         logging.error(f"Failed to fetch name for combo_id {combo_id}: {e}")
-        return FALLBACK_COMBOS.get(combo_id, {}).get("name", "").strip()
+        return FALLBACK_COMBOS.get(combo_id, {}).get("name", "Unknown Combo")
 
 def reset_user_flags(frm, cnx, cursor):
     try:
         reset_query = """UPDATE users SET 
-            is_info = '0', main_menu = NULL,
-            is_submenu = NULL, 
-            selected_combo = NULL, 
-            quantity = NULL, 
+            is_info = '0', main_menu = '0', is_main = '0', 
+            is_temp = '0', sub_menu = '0', is_submenu = '0',
+            selected_combo = NULL, quantity = NULL, 
             address = NULL, payment_method = NULL, order_amount = NULL,
-            combo_id = NULL, pincode = NULL, is_referral = NULL, referral_code = NULL
+            combo_id = NULL, pincode = NULL, is_referral = '0', referral_code = NULL
             WHERE phone_number = %s"""
         cursor.execute(reset_query, (frm,))
         cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (frm,))
@@ -684,7 +728,7 @@ def reset_user_flags(frm, cnx, cursor):
 def is_valid_name(resp1):
     if resp1 in greeting_word:
         return False
-    if not re.match(r'^[\u0900-\u09FFa-zA-Z0-9\s]+$', resp1):
+    if not re.match(r'^[\u0900-\u097Fa-zA-Z0-9\s]+$', resp1):
         return False
     return True
 
@@ -725,7 +769,9 @@ def get_cart_summary(phone, name, address=None):
             subtotal = float(price) * quantity
             total += subtotal
             item_count += 1
-            message += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+            cart_message += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+        
+        discount = 0
         if referral_code:
             cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
             usage_count = cursor.fetchone()[0]
@@ -830,11 +876,11 @@ def Get_Message():
         cursor = cnx.cursor()
         check_already_valid = "SELECT name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id, is_referral, referral_code FROM users WHERE phone_number = %s"
         cursor.execute(check_already_valid, (frm,))
-        result = cursor.execute(check_already_valid)
+        result = cursor.fetchone()
 
         if result is None:
             camp_id = '0'
-            is_valid = False
+            is_valid = '0'
             name = None
             pincode = None
             selected_combo = None
@@ -842,14 +888,14 @@ def Get_Message():
             address = None
             payment_method = None
             order_amount = None
-            is_info = None
-            main_menu = None
-            is_main = None
-            is_temp = None
-            sub_menu = None
-            is_submenu = None
+            is_info = '0'
+            main_menu = '0'
+            is_main = '0'
+            is_temp = '0'
+            sub_menu = '0'
+            is_submenu = '0'
             combo_id = None
-            is_referral = None
+            is_referral = '0'
             referral_code = None
         else:
             name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id, is_referral, referral_code = result
@@ -892,16 +938,16 @@ def Get_Message():
                     if profile_name and is_valid_name(profile_name):
                         name = profile_name
                         cursor.execute(
-                            "INSERT INTO users (phone_number, camp_id, name, is_main, main_menu, balutedaar_points) VALUES (%s, %s, %s, %s, %s, %s)",
-                            (frm, '1', name, True, '0', 0)
+                            "INSERT INTO users (phone_number, camp_id, is_valid, name, is_main, balutedaar_points) VALUES (%s, %s, %s, %s, %s, %s)",
+                            (frm, '1', '1', name, '1', 0)
                         )
                         cnx.commit()
                         send_message(frm, wl.format(name=name), 'pincode')
                     else:
-                        cursor.execute("INSERT INTO users (phone_number, camp_id, is_info, balutedaar_points) VALUES (%s, %s, %s, %s)",
-                                      (frm, '1', '1', 0))
+                        cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info, balutedaar_points) VALUES (%s, %s, %s, %s, %s)",
+                                      (frm, '1', '1', '1', 0))
                         cnx.commit()
-                        send_message(frm, wl_fallback, 'welcome_name')
+                        send_message(frm, wl_fallback, 'welcome_message')
                 else:
                     if name:
                         reset_user_flags(frm, cnx, cursor)
@@ -921,10 +967,10 @@ def Get_Message():
                         else:
                             cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
                             cnx.commit()
-                            send_message(frm, wl_fallback, 'welcome_name')
+                            send_message(frm, wl_fallback, 'welcome_message')
                 
             if camp_id == '1':
-                if is_info == 'yes' and pincode is None:
+                if is_info == '1' and pincode is None:
                     if is_valid_name(resp1):
                         name = resp1
                         cursor.execute("UPDATE users SET name = %s, is_main = %s, is_info = %s WHERE phone_number = %s",
@@ -938,14 +984,30 @@ def Get_Message():
                     pincode = resp1
                     if pincode.isdigit() and len(pincode) == 6:
                         if check_pincode(pincode):
-                            cursor.execute("UPDATE users SET pincode = %s, main_menu = %s, is_main = %s WHERE phone_number = %s",
+                            cursor.execute("UPDATE users SET pincode = %s, is_referral = %s, is_main = %s WHERE phone_number = %s",
                                           (pincode, '1', '0', frm))
                             cnx.commit()
-                            send_multi_product_message(frm, CATALOG_ID, 'menu')
+                            send_referral_prompt_with_button(frm, referral_prompt, 'referral_code')
                         else:
                             send_message(frm, r3, 'pincode_error')
                     else:
                         send_message(frm, r4, 'invalid_pincode')
+                
+                if is_referral == '1':
+                    if msg_type == 'interactive' and resp1 == 'skip_button':
+                        cursor.execute("UPDATE users SET is_referral = %s, main_menu = %s WHERE phone_number = %s", ('0', '1', frm))
+                        cnx.commit()
+                        send_multi_product_message(frm, CATALOG_ID, 'menu')
+                    else:
+                        is_valid, message = validate_referral_code(resp1, frm)
+                        if is_valid:
+                            cursor.execute("UPDATE users SET referral_code = %s, is_referral = %s, main_menu = %s WHERE phone_number = %s",
+                                          (resp1, '0', '1', frm))
+                            cnx.commit()
+                            send_message(frm, referral_success, 'referral_success')
+                            send_multi_product_message(frm, CATALOG_ID, 'menu')
+                        else:
+                            send_referral_prompt_with_button(frm, invalid_referral.format(code=resp1), 'invalid_referral')
                 
                 if is_temp == '1' and address is None:
                     if is_valid_address(resp1):
@@ -1088,7 +1150,7 @@ def Get_Message():
                                     f"🥕 ₹50 Balutedaar Points per friend\n"
                                     f"🥬 Friends get 10% OFF\n"
                                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                                    f"📤 Tap to Share: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0AWith+Bot+Number:+918505053636%0ASend+%22Hi%22+to+Start."
+                                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
                                 )
                                 send_message(frm, gamified_message, "gamified_prompt")
                             elif payment_method == "Pay Now":
@@ -1107,11 +1169,14 @@ def Get_Message():
                             cnx.close()
                             return 'Success'
                 
-                else:
-                    if len(frm) != 12:
-                        send_message(frm, "Invalid phone number. Please use a valid number.", "invalid_phone")
-                    cnx.close()
-                    return 'Success'
+                # Skip sending the "Please start by typing 'Hi'" message if user is in a valid flow
+                cnx.close()
+                return 'Success'
+        
+        else:
+            send_message(frm, "Invalid input or phone number. Please start by typing 'Hi'.", "invalid_input")
+            cnx.close()
+            return 'Success'
 
     except Exception as e:
         logging.error(f"Error processing request: {e}")
