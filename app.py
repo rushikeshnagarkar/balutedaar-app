@@ -563,18 +563,22 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             f"Dear *{name}*,\n\nPlease complete your payment of ₹{order_amount:.2f} for your Balutedaar order.\n\n"
             f"📦 Order Details:\n"
         )
+        total = order_amount
         for item in items:
             combo_id, combo_name, price, quantity = item
             subtotal = float(price) * quantity
             message += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
         if referral_code:
+            cursor = pymysql.connect(user=usr, password=pas, host=aws_host, database=db).cursor()
             cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
             usage_count = cursor.fetchone()[0]
             discount_percent = min(usage_count * 10, 50)
-            discount_amount = order_amount * (discount_percent / 100)
-            message += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
-            order_amount = max(order_amount - discount_amount, 0)
-        message += f"\n💰 Total: ₹{order_amount:.2f}\n📍 Delivery Address: {address}\n\n"
+            if discount_percent > 0:
+                discount_amount = total * (discount_percent / 100)
+                message += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
+                total = max(total - discount_amount, 0)
+            cursor.close()
+        message += f"\n💰 Total: ₹{total:.2f}\n📍 Delivery Address: {address}\n\n"
         message += f"Click here to pay: {payment_url}\n\n"
         message += "Complete the payment to confirm your order!"
         
@@ -616,6 +620,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
         
         total = 0
         order_ids = []
+        discount_percent = 0  # Initialize with 0 as default
         for item in cart_items:
             combo_id, combo_name, quantity, price = item
             subtotal = float(price) * quantity
@@ -633,7 +638,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
             if is_valid:
                 cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
                 usage_count = cursor.fetchone()[0]
-                discount_percent = min(usage_count * 10, 50)
+                discount_percent = min(usage_count * 10, 50)  # Set discount_percent only if valid
                 discount_amount = total * (discount_percent / 100)
                 total = max(total - discount_amount, 0)
                 for order_id in order_ids:
@@ -645,7 +650,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
         new_referral_code = generate_referral_code(rcvr)
         return {
             "total": total,
-            "message": f"Order placed! Total: ₹{total:.2f} (with {discount_percent}% discount)\nYour order will be delivered to {address}, Pincode: {pincode} by tomorrow 9 AM.",
+            "message": f"Order placed! Total: ₹{total:.2f} (with {discount_percent}% discount)" if discount_percent > 0 else f"Order placed! Total: ₹{total:.2f}",
             "referral_code": new_referral_code
         }
     except Exception as e:
@@ -754,13 +759,15 @@ def get_cart_summary(phone, name, address=None):
             item_count += 1
             cart_message += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
         
+        discount_percent = 0
         if referral_code:
             cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
             usage_count = cursor.fetchone()[0]
             discount_percent = min(usage_count * 10, 50)
-            discount_amount = total * (discount_percent / 100)
-            cart_message += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
-            total = max(total - discount_amount, 0)
+            if discount_percent > 0:
+                discount_amount = total * (discount_percent / 100)
+                cart_message += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
+                total = max(total - discount_amount, 0)
         cart_message += f"\n💰 Total Amount: ₹{total:.2f}"
         if address:
             cart_message += f"\n📍 Delivery Address: {address}"
@@ -856,7 +863,7 @@ def Get_Message():
             
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
-        check_already_valid = "SELECT name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id, is_referral, referral_code FROM users WHERE phone_number = %s"
+        check_already_valid = "SELECT name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id, is_referral, referral_code, balutedaar_points FROM users WHERE phone_number = %s"
         cursor.execute(check_already_valid, (frm,))
         result = cursor.fetchone()
 
@@ -879,8 +886,9 @@ def Get_Message():
             combo_id = None
             is_referral = '0'
             referral_code = None
+            balutedaar_points = 0
         else:
-            name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id, is_referral, referral_code = result
+            name, pincode, selected_combo, quantity, address, payment_method, is_valid, order_amount, is_info, main_menu, is_main, is_temp, sub_menu, is_submenu, combo_id, is_referral, referral_code, balutedaar_points = result
             camp_id = '1'
 
         if (msg_type == 'text' or msg_type == 'interactive' or msg_type == 'order') and len(frm) == 12:
@@ -898,8 +906,7 @@ def Get_Message():
                     (frm, datetime.now().strftime('%Y-%m'))
                 )
                 points_earned = cursor.fetchone()[0] or 0
-                cursor.execute("SELECT balutedaar_points FROM users WHERE phone_number = %s", (frm,))
-                total_points = cursor.fetchone()[0] or 0
+                total_points = balutedaar_points
                 status_message = f"Refer {5 - usage_count} more friends for a FREE ₹200 Veggie Box!" if usage_count < 5 else "You unlocked a FREE ₹200 Veggie Box!"
                 message = (
                     f"🌟 Your Rewards Summary:\n"
@@ -1001,7 +1008,7 @@ def Get_Message():
                             send_message(frm, order_summary, "no_order")
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
                         else:
-                            order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
+                            order_summary += "\n\nPlease confirm your order, redeem points with 'Redeem', or go back to the menu to make changes."
                             interactive_template_with_2button(frm, order_summary, "order_summary")
                     else:
                         send_message(frm, invalid_address, 'invalid_address')
@@ -1015,7 +1022,7 @@ def Get_Message():
                             send_message(frm, order_summary, "no_order")
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
                         else:
-                            order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
+                            order_summary += "\n\nPlease confirm your order, redeem points with 'Redeem', or go back to the menu to make changes."
                             interactive_template_with_2button(frm, order_summary, "order_summary")
                     elif resp1 == "7":
                         cursor.execute("UPDATE users SET address = NULL, is_temp = '1' WHERE phone_number = %s", (frm,))
@@ -1062,12 +1069,38 @@ def Get_Message():
                     if resp1 == "1":
                         cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
-                        interactive_template_with_3button(frm, "💳 Please select your preferred payment method to continue:", "payment")
+                        order_summary, total, item_count = get_cart_summary(frm, name, address)
+                        if item_count == 0:
+                            send_message(frm, order_summary, "no_order")
+                            send_multi_product_message(frm, CATALOG_ID, 'menu')
+                        else:
+                            order_summary += "\n\nPlease confirm your order, redeem points with 'Redeem', or go back to the menu to make changes."
+                            interactive_template_with_2button(frm, order_summary, "order_summary")
                     elif resp1 == "2":
                         reset_user_flags(frm, cnx, cursor)
                         cursor.execute("UPDATE users SET main_menu = '1' WHERE phone_number = %s", (frm,))
                         cnx.commit()
                         send_multi_product_message(frm, CATALOG_ID, "menu")
+                    elif resp1.lower() == 'redeem':
+                        cursor.execute("SELECT balutedaar_points FROM users WHERE phone_number = %s", (frm,))
+                        points = cursor.fetchone()[0] or 0
+                        cursor.execute("SELECT SUM(price * quantity) FROM user_cart WHERE phone_number = %s", (frm,))
+                        order_total = cursor.fetchone()[0] or 0
+                        if points > 0:
+                            discount = min(points, order_total)
+                            remaining_points = points - discount
+                            cursor.execute("UPDATE users SET balutedaar_points = %s WHERE phone_number = %s", (remaining_points, frm))
+                            order_summary, total, item_count = get_cart_summary(frm, name, address)
+                            total -= discount
+                            order_summary += f"\n🎁 Points Redeemed: -₹{discount:.2f}\n💰 Total Amount: ₹{total:.2f}"
+                            if total == 0:
+                                checkout_result = checkout(frm, name, address, pincode, 'COD', cnx, cursor)
+                                send_message(frm, checkout_result["message"] + f"\n🎁 Points remaining: ₹{remaining_points:.2f}", "order_confirmation")
+                            else:
+                                interactive_template_with_2button(frm, order_summary, "order_summary")
+                        else:
+                            send_message(frm, "No points available to redeem.", "no_points")
+                        cnx.commit()
                     else:
                         payment_method = {"3": "COD", "5": "Pay Now"}.get(resp1)
                         if payment_method:
@@ -1101,13 +1134,15 @@ def Get_Message():
                                     combo_id, combo_name, price, quantity = item
                                     subtotal = float(price) * quantity
                                     confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+                                discount_percent = 0
                                 if referral_code:
                                     cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
                                     usage_count = cursor.fetchone()[0]
                                     discount_percent = min(usage_count * 10, 50)
-                                    discount_amount = total * (discount_percent / 100)
-                                    confirmation += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
-                                    total = max(total - discount_amount, 0)
+                                    if discount_percent > 0:
+                                        discount_amount = total * (discount_percent / 100)
+                                        confirmation += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
+                                        total = max(total - discount_amount, 0)
                                 confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
                                 confirmation += f"🚚 Delivery Schedule: Your order will be delivered to your doorstep by tomorrow 9 AM.\n\n"
                                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn rewards!\n\n"
@@ -1189,19 +1224,21 @@ def payment_callback():
                 frm, name, address, pincode = items[0][0:4]
                 total = 0
                 confirmation = f"Dear *{name}*,\n\nThank you for your payment! Your order has been confirmed:\n\n📦 *Order Details*:\n"
-                referral_code = items[0][9]
+                discount_percent = 0
                 for item in items:
                     combo_name, price, quantity = item[5:8]
                     subtotal = float(price) * quantity
                     total += subtotal
                     confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+                referral_code = items[0][9]
                 if referral_code:
                     cursor.execute("SELECT usage_count FROM referral_codes WHERE referral_code = %s", (referral_code,))
                     usage_count = cursor.fetchone()[0]
                     discount_percent = min(usage_count * 10, 50)
-                    discount_amount = total * (discount_percent / 100)
-                    confirmation += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
-                    total = max(total - discount_amount, 0)
+                    if discount_percent > 0:
+                        discount_amount = total * (discount_percent / 100)
+                        confirmation += f"🎁 Referral Discount: -₹{discount_amount:.2f} ({discount_percent}%)\n"
+                        total = max(total - discount_amount, 0)
                 confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
                 confirmation += f"🚚 Your order will be delivered by tomorrow 9 AM.\n\n"
                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn rewards!\n\n"
