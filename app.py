@@ -138,7 +138,7 @@ def generate_referral_code(user_phone):
         while True:
             code = "BALU" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
             cursor.execute("SELECT COUNT(*) FROM referral_codes WHERE referral_code = %s", (code,))
-            if cursor.fetchone()[0]0] == 0:
+            if cursor.fetchone()[0] == 0:
                 break
         created_at = datetime.now()
         expiration_date = created_at + timedelta(days=30)
@@ -1169,9 +1169,10 @@ def Get_Message():
                             cnx.close()
                             return 'Success'
                 
-                # Skip sending the "Please start by typing 'Hi'" message if user is in a valid flow
-                cnx.close()
-                return 'Success'
+                else:
+                    send_message(frm, "Please start by typing 'Hi' to begin your order.", "invalid_input")
+                    cnx.close()
+                    return 'Success'
         
         else:
             send_message(frm, "Invalid input or phone number. Please start by typing 'Hi'.", "invalid_input")
