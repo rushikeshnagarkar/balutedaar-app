@@ -47,7 +47,7 @@ greeting_word = ['Hi', 'hi', 'HI', 'Hii', 'hii', 'HII', 'Hello', 'hello', 'HELLO
 m1 = '''Please select a combo from the list below:'''
 m3 = '''🚚 Just one more step!
 
-Kindly share your complete delivery address so we can deliver your veggies without any delay.'''
+Kindly share your complete delivery address in English (e.g., Flat 101, Baner Road, Pune) so we can deliver your veggies without any delay.'''
 invalid_address = '''😕 Oops! That doesn’t look like a valid address. Please enter a complete address with house/flat number, street name, and area (e.g., Flat 101, Baner Road, Pune). Use letters, numbers, spaces, commas, periods, hyphens, or slashes only.'''
 invalid_name = '''⚠️ Please enter a valid name using alphabetic characters, numbers, or spaces only.'''
 referral_prompt = '''🧩 Got a referral code? Drop it now for an instant 10% welcome discount!
@@ -150,7 +150,8 @@ def generate_referral_code(user_phone):
     except Exception as e:
         logging.error(f"Failed to generate referral code for {user_phone}: {e}")
         return None
-
+        
+        
 def validate_referral_code(referral_code, friend_phone):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
@@ -957,37 +958,42 @@ def Get_Message():
                 cnx.close()
                 return 'Success'
 
-            if resp1 in greeting_word or result is None:
-                profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
-                if profile_name and is_valid_name(profile_name):
-                    name = profile_name
-                    if result is None:
+            if resp1 in greeting_word:
+                if result is None:
+                    profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
+                    if profile_name and is_valid_name(profile_name):
+                        name = profile_name
                         cursor.execute(
                             "INSERT INTO users (phone_number, camp_id, is_valid, name, is_main, balutedaar_points) VALUES (%s, %s, %s, %s, %s, %s)",
                             (frm, '1', '1', name, '1', 0)
                         )
+                        cnx.commit()
+                        send_message(frm, wl.format(name=name), 'pincode')
                     else:
-                        cursor.execute(
-                            "UPDATE users SET name = %s, is_main = %s, is_valid = %s, is_info = %s WHERE phone_number = %s",
-                            (name, '1', '1', '0', frm)
-                        )
-                    cnx.commit()
-                    reset_user_flags(frm, cnx, cursor)
-                    send_message(frm, wl.format(name=name), 'pincode')
+                        cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info, balutedaar_points) VALUES (%s, %s, %s, %s, %s)",
+                                      (frm, '1', '1', '1', 0))
+                        cnx.commit()
+                        send_message(frm, wl_fallback, 'welcome_message')
                 else:
-                    if result is None:
-                        cursor.execute(
-                            "INSERT INTO users (phone_number, camp_id, is_valid, is_info, balutedaar_points) VALUES (%s, %s, %s, %s, %s)",
-                            (frm, '1', '1', '1', 0)
-                        )
-                    else:
+                    if name:
                         reset_user_flags(frm, cnx, cursor)
-                        cursor.execute(
-                            "UPDATE users SET is_info = %s, is_valid = %s, name = NULL WHERE phone_number = %s",
-                            ('1', '1', frm)
-                        )
-                    cnx.commit()
-                    send_message(frm, wl_fallback, 'welcome_message')
+                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                        cnx.commit()
+                        send_message(frm, r2.format(name=name), 'pincode')
+                    else:
+                        profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
+                        if profile_name and is_valid_name(profile_name):
+                            name = profile_name
+                            cursor.execute(
+                                "UPDATE users SET name = %s, is_main = %s, is_valid = %s WHERE phone_number = %s",
+                                (name, '1', '1', frm)
+                            )
+                            cnx.commit()
+                            send_message(frm, r2.format(name=name), 'pincode')
+                        else:
+                            cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
+                            cnx.commit()
+                            send_message(frm, wl_fallback, 'welcome_message')
             
             if camp_id == '1':
                 if is_info == '1' and pincode is None:
@@ -1254,14 +1260,14 @@ def payment_callback():
                     confirmation += f"🎁 Tiered Discount ({int(discount_percentage * 100)}%): -₹{(total * discount_percentage):.2f}\n"
                     total = max(total * (1 - discount_percentage), 0)
                 confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
-                confirmation += f"🚗 Your order will be delivered by tomorrow 9 AM.\n\n"
+                confirmation += f"🚚 Your order will be delivered by tomorrow 9 AM.\n\n"
                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn ₹50 per order they place!\n\n"
                 confirmation += "We appreciate your support for fresh, sustainable produce!\nBest regards,\nThe Balutedaar Team"
                 send_message(frm, confirmation, "payment_confirmation")
                 gamified_prompt = (
                     f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
                     f"Share your code {new_referral_code} with up to 5 friends this month and get:\n"
-                    f"🥕 Bharat {new_referral_points} per friend\n"
+                    f"🥕 ₹50 Balutedaar Points per friend\n"
                     f"🥬 Friends get 10% OFF\n"
                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
                     f"📤 Tap to Share: [https://wa.me/+918505053636?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
@@ -1298,4 +1304,4 @@ def referral_reminders():
 
 if __name__ == '__main__':
     app.debug = True
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=5000)
