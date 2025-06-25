@@ -47,7 +47,7 @@ greeting_word = ['Hi', 'hi', 'HI', 'Hii', 'hii', 'HII', 'Hello', 'hello', 'HELLO
 m1 = '''Please select a combo from the list below:'''
 m3 = '''🚚 Just one more step!
 
-Kindly share your complete delivery address so we can deliver your veggies without any delay.'''
+Kindly share your complete delivery address in English (e.g., Flat 101, Baner Road, Pune) so we can deliver your veggies without any delay.'''
 invalid_address = '''😕 Oops! That doesn’t look like a valid address. Please enter a complete address with house/flat number, street name, and area (e.g., Flat 101, Baner Road, Pune). Use letters, numbers, spaces, commas, periods, hyphens, or slashes only.'''
 invalid_name = '''⚠️ Please enter a valid name using alphabetic characters, numbers, or spaces only.'''
 referral_prompt = '''🧩 Got a referral code? Drop it now for an instant 10% welcome discount!
@@ -135,7 +135,7 @@ def generate_referral_code(user_phone):
             return existing_code[0]
         
         while True:
-            code = "BALU" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+            code = "BLTDR" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
             cursor.execute("SELECT COUNT(*) FROM referral_codes WHERE referral_code = %s", (code,))
             if cursor.fetchone()[0] == 0:
                 break
@@ -150,7 +150,7 @@ def generate_referral_code(user_phone):
     except Exception as e:
         logging.error(f"Failed to generate referral code for {user_phone}: {e}")
         return None
-
+        
 def validate_referral_code(referral_code, friend_phone):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
