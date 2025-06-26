@@ -128,16 +128,14 @@ def generate_referral_code(user_phone):
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
         month_year = datetime.now().strftime('%Y-%m')
-        cursor.execute("SELECT referral_code FROM referral_codes WHERE user_phone = %s AND month_year = %s", (user_phone, month_year))
-        existing_code = cursor.fetchone()
-        if existing_code:
-            cnx.close()
-            return existing_code[0]
         
+        random.seed()  # Ensure fresh randomness
         while True:
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
             cursor.execute("SELECT COUNT(*) FROM referral_codes WHERE referral_code = %s", (code,))
-            if cursor.fetchone()[0] == 0:
+            count = cursor.fetchone()[0]
+            logging.debug(f"Generated code {code}, uniqueness check returned count: {count}")
+            if count == 0:
                 break
         cursor.execute(
             "INSERT INTO referral_codes (user_phone, referral_code, month_year, usage_count, is_active, created_at) "
@@ -145,10 +143,12 @@ def generate_referral_code(user_phone):
             (user_phone, code, month_year, 0, True, datetime.now())
         )
         cnx.commit()
+        logging.info(f"Inserted new referral code {code} for user {user_phone}")
         cnx.close()
         return code
     except Exception as e:
         logging.error(f"Failed to generate referral code for {user_phone}: {e}")
+        cnx.close()
         return None
         
         
