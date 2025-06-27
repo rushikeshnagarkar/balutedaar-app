@@ -273,7 +273,7 @@ def send_monthly_referral_update():
                 f"💰 Points Earned: ₹{points_earned}\n"
                 f"🎁 Your Next Order Discount: {discount_percentage}% OFF\n"
                 f"🎁 Status: {status_message}\n"
-                f"📤 Share {new_code}: [https://wa.me/+918505053636?text=Use+my+code+{new_code}+to+get+fresh+veggies!]\n"
+                f"📤 Share {new_code}: [https://wa.me/+917477751777?text=Use+my+code+{new_code}+to+get+fresh+veggies!]\n"
                 f"👉 Type ‘My Rewards’ to redeem points or track progress."
             )
             send_message(user_phone, message, "monthly_update")
@@ -318,7 +318,7 @@ def send_referral_reminders():
                         f"📅 Valid until: {expiry.strftime('%B %d, %Y')}\n"
                         f"👥 Friends used: {usage_count}/5\n"
                         f"💰 Your next order discount: {discount_percentage}% OFF\n"
-                        f"📤 Share now: [https://wa.me/+918505053636?text=Use+my+code+{referral_code}+to+get+fresh+veggies!]\n"
+                        f"📤 Share now: [https://wa.me/+917477751777?text=Use+my+code+{referral_code}+to+get+fresh+veggies!]\n"
                         f"Get {5 - usage_count} more friends to use it for a FREE ₹200 Veggie Box!"
                     )
                     send_message(user_phone, message, "referral_reminder")
@@ -1163,7 +1163,7 @@ def Get_Message():
                                     f"🥕 ₹50 Balutedaar Points per friend\n"
                                     f"🥬 Friends get 10% OFF\n"
                                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
+                                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+917477751777?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+917477751777%0ASend+%22Hi%22+to+Start."
                                 )
                                 send_message(frm, gamified_prompt, "gamified_prompt")
                                 cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
@@ -1248,7 +1248,7 @@ def payment_callback():
                     f"🥕 ₹50 Balutedaar Points per friend\n"
                     f"🥬 Friends get 10% OFF\n"
                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                    f"📤 Tap to Share: [https://wa.me/+918505053636?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
+                    f"📤 Tap to Share: [https://wa.me/+917477751777?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
                 )
                 send_message(frm, gamified_prompt, "gamified_prompt")
             
