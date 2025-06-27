@@ -1,3 +1,4 @@
+
 from flask import Flask, jsonify, request
 import requests
 import json
@@ -150,7 +151,6 @@ def generate_referral_code(user_phone):
         logging.error(f"Failed to generate referral code for {user_phone}: {e}")
         cnx.close()
         return None
-        
         
 def validate_referral_code(referral_code, friend_phone):
     try:
@@ -1152,10 +1152,10 @@ def Get_Message():
                                     cnx.close()
                                     return 'Success'
                                 
+                                # Fetch current cart items for the confirmation message
                                 cursor.execute(
-                                    "SELECT combo_id, combo_name, price, quantity, total_amount, address, referral_code "
-                                    "FROM orders WHERE user_phone = %s AND payment_method = 'COD' AND order_status = 'Placed' "
-                                    "ORDER BY created_at DESC",
+                                    "SELECT combo_id, combo_name, price, quantity "
+                                    "FROM user_cart WHERE phone_number = %s",
                                     (frm,)
                                 )
                                 items = cursor.fetchall()
@@ -1167,31 +1167,19 @@ def Get_Message():
                                     return 'Success'
                                 
                                 total = checkout_result["total"]
-                                new_referral_code = checkout_result["referral_code"]
                                 discount_percentage = checkout_result["discount_percentage"]
-                                confirmation = f"Dear *{name}*,\n\nThank you for your order with Balutedaar! Below is your order confirmation:\n\n📦 *Order Details*:\n"
+                                confirmation = f"Dear {name},\n\nYour order is confirmed:\n\n📦 **Order Details**:\n"
                                 for item in items:
-                                    combo_id, combo_name, price, quantity, item_total, address, order_referral_code = item
+                                    combo_id, combo_name, price, quantity = item
                                     subtotal = float(price) * quantity
-                                    confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
-                                if order_referral_code:
+                                    confirmation += f"- {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+                                if checkout_result["referral_code"]:
                                     confirmation += f"🎁 Referral Discount: -₹20.00\n"
                                 if discount_percentage > 0:
-                                    confirmation += f"🎁 Tiered Discount ({int(discount_percentage * 100)}%): -₹{(item_total - total):.2f}\n"
-                                confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
-                                confirmation += f"🚚 Delivery Schedule: Your order will be delivered to your doorstep by tomorrow 9 AM.\n\n"
-                                confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn ₹50 per order they place!\n\n"
-                                confirmation += f"We appreciate your support for fresh, sustainable produce. If you’ve any questions, reach out!\n\nBest regards,\nThe Balutedaar Team"
+                                    confirmation += f"🎁 Tiered Discount ({int(discount_percentage * 100)}%): -₹{(total / (1 - discount_percentage) - total):.2f}\n"
+                                confirmation += f"\n💰 **Total**: ₹{total:.2f}\n📍 **Address**: {address}\n🚚 **Delivery**: By tomorrow, 9 AM\n\n"
+                                confirmation += "Thank you for choosing Balutedaar!\nBest,\nThe Balutedaar Team"
                                 send_message(frm, confirmation, "order_confirmation")
-                                gamified_prompt = (
-                                    f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
-                                    f"Share your code *{new_referral_code}* with up to 5 friends this month and get:\n"
-                                    f"🥕 ₹50 Balutedaar Points per friend\n"
-                                    f"🥬 Friends get 10% OFF\n"
-                                    f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-                                    f"📤 Tap to Share: Tap here to get the message: https://wa.me/+918505053636?text=Use+my+code+%22{new_referral_code}%22+to+get+fresh+veggies!%0Awith+Bot+number:+918505053636%0ASend+%22Hi%22+to+Start."
-                                )
-                                send_message(frm, gamified_prompt, "gamified_prompt")
                                 cursor.execute("UPDATE users SET is_submenu = '0', payment_method = NULL WHERE phone_number = %s", (frm,))
                                 cnx.commit()
                                 cnx.close()
@@ -1246,36 +1234,49 @@ def payment_callback():
                 (payment_link_reference_id,)
             )
             cursor.execute(
-                "SELECT user_phone, customer_name, address, pincode, combo_id, combo_name, price, quantity, total_amount, referral_code "
+                "SELECT user_phone, customer_name, address, pincode, referral_code "
                 "FROM orders WHERE reference_id = %s",
                 (payment_link_reference_id,)
             )
+            order_data = cursor.fetchone()
+            if not order_data:
+                cnx.close()
+                return "Error: Order not found", 400
+
+            frm, name, address, pincode, referral_code = order_data
+            cursor.execute("UPDATE users SET pincode = NULL WHERE phone_number = %s", (frm,))
+            # Fetch current cart items for the confirmation message
+            cursor.execute(
+                "SELECT combo_id, combo_name, price, quantity "
+                "FROM user_cart WHERE phone_number = %s",
+                (frm,)
+            )
             items = cursor.fetchall()
-            
-            if items:
-                frm = items[0][0]
-                cursor.execute("UPDATE users SET pincode = NULL WHERE phone_number = %s", (frm,))
-                frm, name, address, pincode = items[0][0:4]
-                total = 0
-                confirmation = f"Dear {name},\n\nYour order is confirmed:\n\n📦 **Order Details**:\n"
-                referral_code = items[0][9]
-                discount_percentage = get_tiered_discount(frm)
-                for item in items:
-                    combo_name, price, quantity = item[5:8]
-                    subtotal = float(price) * quantity
-                    total += subtotal
-                    confirmation += f"- {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
-                if referral_code:
-                    total = max(total - 20, 0)
-                if discount_percentage > 0:
-                    total = max(total * (1 - discount_percentage), 0)
-                confirmation += f"\n💰 **Total**: ₹{total:.2f}\n📍 **Address**: {address}\n🚚 **Delivery**: By tomorrow, 9 AM\n\n"
-                confirmation += "Thank you for choosing Balutedaar!\nBest,\nThe Balutedaar Team"
-                send_message(frm, confirmation, "payment_confirmation")
-            
+            if not items:
+                send_message(frm, "Error: No order found. Please try again.", "no_order")
+                cnx.close()
+                return "Error: Order not found", 400
+
+            total = 0
+            confirmation = f"Dear {name},\n\nYour order is confirmed:\n\n📦 **Order Details**:\n"
+            discount_percentage = get_tiered_discount(frm)
+            for item in items:
+                combo_id, combo_name, price, quantity = item
+                subtotal = float(price) * quantity
+                total += subtotal
+                confirmation += f"- {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
+            if referral_code:
+                total = max(total - 20, 0)
+                confirmation += f"🎁 Referral Discount: -₹20.00\n"
+            if discount_percentage > 0:
+                confirmation += f"🎁 Tiered Discount ({int(discount_percentage * 100)}%): -₹{(total / (1 - discount_percentage) - total):.2f}\n"
+            total = max(total * (1 - discount_percentage), 0)
+            confirmation += f"\n💰 **Total**: ₹{total:.2f}\n📍 **Address**: {address}\n🚚 **Delivery**: By tomorrow, 9 AM\n\n"
+            confirmation += "Thank you for choosing Balutedaar!\nBest,\nThe Balutedaar Team"
+            send_message(frm, confirmation, "payment_confirmation")
             cnx.commit()
             cnx.close()
-            return "Payment successful! Your order is confirmed." if items else ("Error: Order not found", 400)
+            return "Payment successful! Your order is confirmed."
         else:
             cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
             cursor = cnx.cursor()
@@ -1292,85 +1293,6 @@ def payment_callback():
     except Exception as e:
         logging.error(f"Payment callback error: {e}")
         return "Error processing payment callback", 500
-
-
-# @app.route('/payment-callback', methods=['GET'])
-# def payment_callback():
-#     try:
-#         payment_id = request.args.get('razorpay_payment_id')
-#         payment_link_id = request.args.get('razorpay_payment_link_id')
-#         payment_link_reference_id = request.args.get('razorpay_payment_link_reference_id')
-#         payment_link_status = request.args.get('razorpay_payment_link_status')
-#         signature = request.args.get('razorpay_signature')
-
-#         if payment_link_status == 'paid':
-#             cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
-#             cursor = cnx.cursor()
-#             cursor.execute(
-#                 "UPDATE orders SET payment_status = 'Completed', order_status = 'Confirmed' WHERE reference_id = %s",
-#                 (payment_link_reference_id,)
-#             )
-#             cursor.execute(
-#                 "SELECT user_phone, customer_name, address, pincode, combo_id, combo_name, price, quantity, total_amount, referral_code "
-#                 "FROM orders WHERE reference_id = %s",
-#                 (payment_link_reference_id,)
-#             )
-#             items = cursor.fetchall()
-            
-#             if items:
-#                 frm = items[0][0]
-#                 cursor.execute("UPDATE users SET pincode = NULL WHERE phone_number = %s", (frm,))
-#                 new_referral_code = generate_referral_code(frm)
-#                 frm, name, address, pincode = items[0][0:4]
-#                 total = 0
-#                 confirmation = f"Dear *{name}*,\n\nThank you for your payment! Your order has been confirmed:\n\n📦 *Order Details*:\n"
-#                 referral_code = items[0][9]
-#                 discount_percentage = get_tiered_discount(frm)
-#                 for item in items:
-#                     combo_name, price, quantity = item[5:8]
-#                     subtotal = float(price) * quantity
-#                     total += subtotal
-#                     confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
-#                 if referral_code:
-#                     confirmation += f"🎁 Referral Discount: -₹20.00\n"
-#                     total = max(total - 20, 0)
-#                 if discount_percentage > 0:
-#                     confirmation += f"🎁 Tiered Discount ({int(discount_percentage * 100)}%): -₹{(total * discount_percentage):.2f}\n"
-#                     total = max(total * (1 - discount_percentage), 0)
-#                 confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
-#                 confirmation += f"🚚 Your order will be delivered by tomorrow 9 AM.\n\n"
-#                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn ₹50 per order they place!\n\n"
-#                 confirmation += "We appreciate your support for fresh, sustainable produce!\nBest regards,\nThe Balutedaar Team"
-#                 send_message(frm, confirmation, "payment_confirmation")
-#                 gamified_prompt = (
-#                     f"🎯 Mission Veggie-Star: UNLOCK REWARDS!\n"
-#                     f"Share your code {new_referral_code} with up to 5 friends this month and get:\n"
-#                     f"🥕 ₹50 Balutedaar Points per friend\n"
-#                     f"🥬 Friends get 10% OFF\n"
-#                     f"🎁 Refer 5 friends = FREE ₹200 Veggie Box!\n"
-#                     f"📤 Tap to Share: [https://wa.me/+917477751777?text=Use+my+code+{new_referral_code}+to+get+fresh+veggies!]"
-#                 )
-#                 send_message(frm, gamified_prompt, "gamified_prompt")
-            
-#             cnx.commit()
-#             cnx.close()
-#             return "Payment successful! Your order is confirmed." if items else ("Error: Order not found", 400)
-#         else:
-#             cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
-#             cursor = cnx.cursor()
-#             cursor.execute(
-#                 "SELECT user_phone, customer_name FROM orders WHERE reference_id = %s",
-#                 (payment_link_reference_id,)
-#             )
-#             result = cursor.fetchone()
-#             cnx.close()
-#             if result:
-#                 frm, name = result
-#                 send_message(frm, f"Dear *{name}*, your payment was not completed. Please try again.", "payment_failed")
-#             return "Payment failed or cancelled. Please try again."
-#     except Exception as e:
-#         logging.error(f"Payment callback error: {e}")
-#         return "Error processing payment callback", 500
 
 @app.route('/send-monthly-updates', methods=['POST'])
 def monthly_updates():
