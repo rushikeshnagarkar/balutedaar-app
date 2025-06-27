@@ -904,7 +904,6 @@ def Get_Message():
 
         if result is None:
             camp_id = '0'
-            is_valid = '0'
             name = None
             pincode = None
             selected_combo = None
@@ -1128,43 +1127,31 @@ def Get_Message():
                             
                             total_amount = sum(float(item[3]) * item[2] for item in cart_items)
                             items = [(item[0], item[1], float(item[3]), item[2]) for item in cart_items]
-                            discount_percentage = get_tiered_discount(frm)
+                            reference_id = f"q9{uuid.uuid4().hex[:8]}"  # Generate reference_id for COD
+                            checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
+                            if checkout_result["total"] == 0:
+                                send_message(frm, checkout_result["message"], "invalid_order")
+                                cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
+                                cnx.commit()
+                                cnx.close()
+                                return 'Success'
                             
                             if payment_method == "COD":
-                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor)
-                                if checkout_result["total"] == 0:
-                                    send_message(frm, checkout_result["message"], "invalid_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
-                                    cnx.commit()
-                                    cnx.close()
-                                    return 'Success'
-                                
-                                cursor.execute(
-                                    "SELECT combo_id, combo_name, price, quantity, total_amount, address, referral_code "
-                                    "FROM orders WHERE user_phone = %s AND payment_method = 'COD' AND order_status = 'Placed' "
-                                    "ORDER BY created_at DESC",
-                                    (frm,)
-                                )
-                                items = cursor.fetchall()
-                                if not items:
-                                    send_message(frm, "Error: No order found. Please try again.", "no_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
-                                    cnx.commit()
-                                    cnx.close()
-                                    return 'Success'
-                                
+                                # Use cart_items for confirmation, not orders table
                                 total = checkout_result["total"]
                                 new_referral_code = checkout_result["referral_code"]
                                 discount_percentage = checkout_result["discount_percentage"]
                                 confirmation = f"Dear *{name}*,\n\nThank you for your order with Balutedaar! Below is your order confirmation:\n\n📦 *Order Details*:\n"
-                                for item in items:
-                                    combo_id, combo_name, price, quantity, item_total, address, order_referral_code = item
+                                item_total = sum(float(item[3]) * item[2] for item in cart_items)  # Original total before discounts
+                                for item in cart_items:
+                                    combo_id, combo_name, quantity, price = item
                                     subtotal = float(price) * quantity
                                     confirmation += f"🛒 {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
-                                if order_referral_code:
+                                if referral_code:
                                     confirmation += f"🎁 Referral Discount: -₹20.00\n"
                                 if discount_percentage > 0:
-                                    confirmation += f"🎁 Tiered Discount ({int(discount_percentage * 100)}%): -₹{(item_total - total):.2f}\n"
+                                    discount_amount = item_total * discount_percentage
+                                    confirmation += f"🎁 Tiered Discount ({int(discount_percentage * 100)}%): -₹{discount_amount:.2f}\n"
                                 confirmation += f"\n💰 Total Amount: ₹{total:.2f}\n📍 Delivery Address: {address}\n"
                                 confirmation += f"🚚 Delivery Schedule: Your order will be delivered to your doorstep by tomorrow 9 AM.\n\n"
                                 confirmation += f"🎉 Here’s your unique referral code: {new_referral_code}\nRefer your friends to earn ₹50 per order they place!\n\n"
@@ -1184,15 +1171,6 @@ def Get_Message():
                                 cnx.close()
                                 return 'Success'
                             elif payment_method == "Pay Now":
-                                reference_id = f"q9{uuid.uuid4().hex[:8]}"
-                                checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
-                                if checkout_result["total"] == 0:
-                                    send_message(frm, checkout_result["message"], "invalid_order")
-                                    cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
-                                    cnx.commit()
-                                    cnx.close()
-                                    return 'Success'
-                                
                                 payment_url = send_payment_message(frm, name, address, pincode, items, total_amount, reference_id, referral_code, discount_percentage)
                                 if not payment_url:
                                     send_message(frm, "Error generating payment link. Please try again.", "payment_error")
