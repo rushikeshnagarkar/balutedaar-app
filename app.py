@@ -662,13 +662,13 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
         cursor.execute("SELECT name, address, pincode, referral_code FROM users WHERE phone_number = %s", (rcvr,))
         user_data = cursor.fetchone()
         if not user_data or not all(user_data[:3]):
-            return {"total": 0, "message": "Error: User data incomplete. Please provide name, address, and pincode."}
+            return {"total": 0, "message": "Error: User data incomplete. Please provide name, address, and pincode.", "items": []}
         referral_code = user_data[3]
         
         cursor.execute("SELECT combo_id, combo_name, quantity, price FROM user_cart WHERE phone_number = %s", (rcvr,))
         cart_items = cursor.fetchall()
         if not cart_items:
-            return {"total": 0, "message": "Error: No valid order details found. Please select a combo."}
+            return {"total": 0, "message": "Error: No valid order details found. Please select a combo.", "items": []}
         
         total = 0
         order_ids = []
@@ -693,6 +693,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
                     assign_referral_rewards(user_phone, referral_code, rcvr, order_id)
         total = max(total * (1 - discount_percentage), 0)
         
+        # Clear the cart after processing
         cursor.execute("DELETE FROM user_cart WHERE phone_number = %s", (rcvr,))
         cursor.execute("UPDATE users SET pincode = NULL, referral_code = NULL WHERE phone_number = %s", (rcvr,))
         cnx.commit()
@@ -701,12 +702,13 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
             "total": total,
             "message": f"Order placed! Total: ₹{total:.2f}\nYour order will be delivered to {address}, Pincode: {pincode} by tomorrow 9 AM.",
             "referral_code": new_referral_code,
-            "discount_percentage": discount_percentage
+            "discount_percentage": discount_percentage,
+            "items": cart_items  # Return cart items for confirmation message
         }
     except Exception as e:
         logging.error(f"Checkout failed for user {rcvr}: {e}")
         cnx.rollback()
-        return {"total": 0, "message": f"Error during checkout: {str(e)}. Please try again."}
+        return {"total": 0, "message": f"Error during checkout: {str(e)}. Please try again.", "items": []}
 
 def check_pincode(pincode):
     try:
@@ -1152,13 +1154,7 @@ def Get_Message():
                                     cnx.close()
                                     return 'Success'
                                 
-                                # Fetch current cart items for the confirmation message
-                                cursor.execute(
-                                    "SELECT combo_id, combo_name, price, quantity "
-                                    "FROM user_cart WHERE phone_number = %s",
-                                    (frm,)
-                                )
-                                items = cursor.fetchall()
+                                items = checkout_result["items"]
                                 if not items:
                                     send_message(frm, "Error: No order found. Please try again.", "no_order")
                                     cursor.execute("UPDATE users SET payment_method = NULL WHERE phone_number = %s", (frm,))
@@ -1170,7 +1166,7 @@ def Get_Message():
                                 discount_percentage = checkout_result["discount_percentage"]
                                 confirmation = f"Dear {name},\n\nYour order is confirmed:\n\n📦 **Order Details**:\n"
                                 for item in items:
-                                    combo_id, combo_name, price, quantity = item
+                                    combo_id, combo_name, quantity, price = item
                                     subtotal = float(price) * quantity
                                     confirmation += f"- {combo_name} x{quantity}: ₹{subtotal:.2f}\n"
                                 if checkout_result["referral_code"]:
