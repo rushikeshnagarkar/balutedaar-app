@@ -636,7 +636,7 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             },
             "reminder_enable": True,
             "reference_id": reference_id,
-            "callback_url": os.getenv("PAYMENT_CALLBACK_URL", "http://your-domain.com/payment-callback"),
+            "callback_url": os.getenv("PAYMENT_CALLBACK_URL", "http://13.202.207.66:5000/payment-callback"),
             "callback_method": "get"
         }
         logging.debug(f"Creating payment link for user {frm} with data: {payment_link_data}")
