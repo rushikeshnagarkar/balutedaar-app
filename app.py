@@ -23,7 +23,7 @@ logging.basicConfig(
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))  # Required for session management
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
 load_dotenv()
 
 # Validate environment variables
@@ -43,7 +43,7 @@ razorpay_client = razorpay.Client(auth=(
     os.getenv("RAZORPAY_KEY_SECRET")
 ))
 
-# Admin credentials (move to .env for production)
+# Admin credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
@@ -51,7 +51,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 greeting_word = ['Hi', 'hi', 'HI', 'Hii', 'hii', 'HII', 'Hello', 'hello', 'HELLO', 'Welcome', 'welcome', 'WELCOME', 'Hey', 'hey', 'HEY']
 
 # Messages
-m1 = '''✅ Combo boxes available for your area on {date}:\n{combo_list}\nWould you like to book?'''
+m1 = '''✅ Combo boxes available for {date}:\n{combo_list}\nWould you like to book?'''
 m3 = '''🚚 Just one more step!
 
 Kindly share your complete delivery address in English (e.g., Flat 101, Baner Road, Pune) so we can deliver your veggies without any delay.'''
@@ -131,34 +131,34 @@ TIERED_DISCOUNTS = {
     5: 0.50   # 50% off for 5 successful referrals
 }
 
-def get_combo_availability(pincode, date):
+def get_combo_availability(date):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
         cursor.execute(
-            "SELECT combo_id, combo_name, remaining FROM combo_inventory WHERE pincode = %s AND date = %s",
-            (pincode, date)
+            "SELECT combo_id, combo_name, total_boxes, remaining FROM combo_inventory WHERE date = %s",
+            (date,)
         )
         inventory = cursor.fetchall()
         cnx.close()
         combo_list = []
-        for combo_id, combo_name, remaining in inventory:
-            combo_list.append(f"🥦 {combo_name}: {remaining} boxes left")
-        return "\n".join(combo_list) if combo_list else "No combos available for your area."
+        for combo_id, combo_name, total_boxes, remaining in inventory:
+            combo_list.append(f"🥦 {combo_name}: {remaining}/{total_boxes} boxes left")
+        return "\n".join(combo_list) if combo_list else "No combos available."
     except Exception as e:
-        logging.error(f"Failed to fetch combo availability for pincode {pincode}: {e}")
+        logging.error(f"Failed to fetch combo availability: {e}")
         combo_list = []
         for combo_id, combo_data in FALLBACK_COMBOS.items():
             combo_list.append(f"🥦 {combo_data['name']}: 0 boxes left")
         return "\n".join(combo_list)
 
-def check_inventory(combo_id, quantity, pincode, date):
+def check_inventory(combo_id, quantity, date):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
         cursor.execute(
-            "SELECT remaining, combo_name FROM combo_inventory WHERE pincode = %s AND date = %s AND combo_id = %s",
-            (pincode, date, combo_id)
+            "SELECT remaining, combo_name FROM combo_inventory WHERE date = %s AND combo_id = %s",
+            (date, combo_id)
         )
         result = cursor.fetchone()
         cnx.close()
@@ -169,13 +169,13 @@ def check_inventory(combo_id, quantity, pincode, date):
         logging.error(f"Failed to check inventory for combo_id {combo_id}: {e}")
         return False, get_combo_name(combo_id)
 
-def update_inventory(combo_id, quantity, pincode, date):
+def update_inventory(combo_id, quantity, date):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
         cursor.execute(
-            "UPDATE combo_inventory SET booked = booked + %s, remaining = remaining - %s WHERE pincode = %s AND date = %s AND combo_id = %s",
-            (quantity, quantity, pincode, date, combo_id)
+            "UPDATE combo_inventory SET booked = booked + %s, remaining = remaining - %s WHERE date = %s AND combo_id = %s",
+            (quantity, quantity, date, combo_id)
         )
         cnx.commit()
         cnx.close()
@@ -293,97 +293,29 @@ def assign_referral_rewards(user_phone, referral_code, friend_phone, order_id):
         cnx.rollback()
         cnx.close()
 
-def send_monthly_referral_update():
+def send_message(rcvr, body, message):
+    url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
+    if not rcvr.startswith('+'):
+        rcvr = f"+91{rcvr.strip()[-10:]}"
+    payload = json.dumps({
+        "phone": rcvr,
+        "text": body,
+        "enable_acculync": True,
+        "extra": message
+    })
+    headers = {
+        'Content-Type': "application/json",
+        'Authorization': authkey,
+        'referer': 'https://myaccount.rmlconnect.net/'
+    }
     try:
-        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
-        cursor = cnx.cursor()
-        prev_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
-        cursor.execute("UPDATE referral_codes SET is_active = %s WHERE month_year < %s", (False, datetime.now().strftime('%Y-%m')))
-        cursor.execute("SELECT phone_number, name FROM users")
-        users = cursor.fetchall()
-        for user_phone, name in users:
-            new_code = generate_referral_code(user_phone)
-            if not new_code:
-                continue
-            cursor.execute(
-                "SELECT COUNT(*), SUM(points_earned) FROM referral_rewards WHERE user_phone = %s AND referral_code IN "
-                "(SELECT referral_code FROM referral_codes WHERE month_year = %s)",
-                (user_phone, prev_month)
-            )
-            referral_count, points_earned = cursor.fetchone()
-            points_earned = points_earned or 0
-            month_name = datetime.now().strftime('%B')
-            month_end = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-            status_message = f"Refer {5 - referral_count} more friends for a FREE ₹200 Veggie Box!"
-            discount_percentage = TIERED_DISCOUNTS.get(referral_count, 0) * 100
-            message = (
-                f"🌟 Hello {name}!\n"
-                f"Your new 🌱 Referral Code for {month_name} is {new_code} (valid for 5 friends until {month_end.strftime('%B %d, %Y')})!\n"
-                f"📊 {prev_month} Summary:\n"
-                f"👥 Friends Referred: {referral_count}\n"
-                f"💰 Points Earned: ₹{points_earned}\n"
-                f"🎁 Your Next Order Discount: {discount_percentage}% OFF\n"
-                f"🎁 Status: {status_message}\n"
-                f"📤 Share {new_code}: [https://wa.me/+917477751777?text=Use+my+code+{new_code}+to+get+fresh+veggies!]\n"
-                f"👉 Type ‘My Rewards’ to redeem points or track progress."
-            )
-            send_message(user_phone, message, "monthly_update")
-        cnx.commit()
-        cnx.close()
-        return {"status": "success", "message": "Monthly updates sent"}
-    except Exception as e:
-        logging.error(f"Failed to send monthly referral updates: {e}")
-        cnx.rollback()
-        cnx.close()
-        return {"status": "error", "message": str(e)}
-
-def send_referral_reminders():
-    try:
-        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
-        cursor = cnx.cursor()
-        today = datetime.now()
-        expiry_date = today - timedelta(days=30)
-        cursor.execute(
-            "SELECT user_phone, referral_code, created_at, reminder_count, usage_count "
-            "FROM referral_codes WHERE is_active = %s AND created_at > %s",
-            (True, expiry_date)
-        )
-        codes = cursor.fetchall()
-        for user_phone, referral_code, created_at, reminder_count, usage_count in codes:
-            days_since_creation = (today - created_at).days
-            if days_since_creation < 30 and usage_count < 5:
-                should_send = False
-                if reminder_count is None and days_since_creation >= 7:
-                    should_send = True
-                elif reminder_count and (today - reminder_count).days >= 7:
-                    should_send = True
-                if should_send:
-                    cursor.execute("SELECT name FROM users WHERE phone_number = %s", (user_phone,))
-                    name = cursor.fetchone()[0] or "Customer"
-                    expiry = created_at + timedelta(days=30)
-                    discount_percentage = TIERED_DISCOUNTS.get(usage_count, 0) * 100
-                    message = (
-                        f"🌟 Hi {name}!\n"
-                        f"Reminder: Your referral code *{referral_code}* is still active! 🎉\n"
-                        f"📅 Valid until: {expiry.strftime('%B %d, %Y')}\n"
-                        f"👥 Friends used: {usage_count}/5\n"
-                        f"💰 Your next order discount: {discount_percentage}% OFF\n"
-                        f"📤 Share now: [https://wa.me/+917477751777?text=Use+my+code+{referral_code}+to+get+fresh+veggies!]\n"
-                        f"Get {5 - usage_count} more friends to use it for a FREE ₹200 Veggie Box!"
-                    )
-                    send_message(user_phone, message, "referral_reminder")
-                    cursor.execute(
-                        "UPDATE referral_codes SET reminder_count = %s WHERE referral_code = %s",
-                        (today, referral_code)
-                    )
-                    cnx.commit()
-        cnx.close()
-        return {"status": "success", "message": "Referral reminders sent"}
-    except Exception as e:
-        logging.error(f"Failed to send referral reminders: {e}")
-        cnx.rollback()
-        cnx.close()
-        return {"status": "error", "message": str(e)}
+        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
+        response.raise_for_status()
+        savesentlog(rcvr, response.text, response.status_code, message)
+        return response.text
+    except requests.RequestException as e:
+        logging.error(f"Failed to send message: {e}")
+        return None
 
 def send_referral_prompt_with_button(rcvr, body, message):
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
@@ -417,54 +349,13 @@ def send_referral_prompt_with_button(rcvr, body, message):
         'referer': 'https://myaccount.rmlconnect.net/'
     }
     try:
-        logging.debug(f"Sending referral prompt to {rcvr} with payload: {payload}")
-        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
-        response.raise_for_status()
-        logging.debug(f"Referral prompt sent successfully to {rcvr}, response: {response.text}")
-        savesentlog(rcvr, response.text, response.status_code, message)
-        return response.text
-    except requests.RequestException as e:
-        logging.error(f"Failed to send referral prompt to {rcvr}: {e}, Response: {getattr(e.response, 'text', 'No response')}, Status: {getattr(e.response, 'status_code', 'Unknown')}")
-        return None
-
-def send_message(rcvr, body, message):
-    url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-    if not rcvr.startswith('+'):
-        rcvr = f"+91{rcvr.strip()[-10:]}"
-    payload = json.dumps({
-        "phone": rcvr,
-        "text": body,
-        "enable_acculync": True,
-        "extra": message
-    })
-    headers = {
-        'Content-Type': "application/json",
-        'Authorization': authkey,
-        'referer': 'https://myaccount.rmlconnect.net/'
-    }
-    try:
         response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
         response.raise_for_status()
         savesentlog(rcvr, response.text, response.status_code, message)
         return response.text
     except requests.RequestException as e:
-        logging.error(f"Failed to send message: {e}")
+        logging.error(f"Failed to send referral prompt to {rcvr}: {e}")
         return None
-
-def savesentlog(frm, response, statuscode, Body):
-    try:
-        response_data = json.loads(response) if response else {}
-        message_id = response_data.get("messages", [{}])[0].get("id", "unknown")
-        now = str(datetime.now())
-        add_data = "INSERT INTO tbl_logs(sender_id, timestamp1, message_id, status, messagebody) VALUES (%s, %s, %s, %s, %s)"
-        val = (str(frm), str(now), message_id, str(statuscode), Body)
-        cnx = pymysql.connect(user=usr, max_allowed_packet=1073741824, password=pas, host=aws_host, database=db)
-        cursor = cnx.cursor()
-        cursor.execute(add_data, val)
-        cnx.commit()
-        cnx.close()
-    except Exception as e:
-        logging.error(f"Failed to save log: {e}")
 
 def interactive_template_with_2button(rcvr, body, message):
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
@@ -517,45 +408,41 @@ def interactive_template_with_2button(rcvr, body, message):
         return None
 
 def interactive_template_with_3button(frm, body, message):
-    if not authkey:
-        logging.error(f"Skipping interactive_template_with_3button to {frm}: No authkey provided")
-        return None
     url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
     if not frm.startswith('+'):
         frm = f"+91{frm.strip()[-10:]}"
-    if message == "payment":
-        payload = json.dumps({
-            "phone": frm,
-            "enable_acculync": False,
-            "extra": message,
-            "media": {
-                "type": "interactive_list",
-                "body": body,
-                "button_text": "Choose Payment",
-                "button": [
-                    {
-                        "section_title": "Cash on Delivery",
-                        "row": [
-                            {
-                                "id": "3",
-                                "title": "COD",
-                                "description": "Pay cash on delivery"
-                            }
-                        ]
-                    },
-                    {
-                        "section_title": "Online Payment",
-                        "row": [
-                            {
-                                "id": "5",
-                                "title": "Pay Now",
-                                "description": "Pay via UPI or Card"
-                            }
-                        ]
-                    }
-                ]
-            }
-        })
+    payload = json.dumps({
+        "phone": frm,
+        "enable_acculync": False,
+        "extra": message,
+        "media": {
+            "type": "interactive_list",
+            "body": body,
+            "button_text": "Choose Payment",
+            "button": [
+                {
+                    "section_title": "Cash on Delivery",
+                    "row": [
+                        {
+                            "id": "3",
+                            "title": "COD",
+                            "description": "Pay cash on delivery"
+                        }
+                    ]
+                },
+                {
+                    "section_title": "Online Payment",
+                    "row": [
+                        {
+                            "id": "5",
+                            "title": "Pay Now",
+                            "description": "Pay via UPI or Card"
+                        }
+                    ]
+                }
+            ]
+        }
+    })
     headers = {
         'Content-Type': 'application/json',
         'Authorization': authkey,
@@ -639,11 +526,9 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             "callback_url": os.getenv("PAYMENT_CALLBACK_URL", "http://13.202.207.66:5000/payment-callback"),
             "callback_method": "get"
         }
-        logging.debug(f"Creating payment link for user {frm} with data: {payment_link_data}")
         payment_link = razorpay_client.payment_link.create(payment_link_data)
         payment_url = payment_link.get("short_url", "")
         if not payment_url:
-            logging.error(f"Failed to generate payment URL for user {frm}: Empty short_url")
             return None
 
         message = (
@@ -674,20 +559,12 @@ def send_payment_message(frm, name, address, pincode, items, order_amount, refer
             'Authorization': authkey,
             'referer': 'myaccount.rmlconnect.net'
         }
-        logging.debug(f"Sending payment message to {frm} with payload: {payload}")
         response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False, timeout=10)
         response.raise_for_status()
-        logging.info(f"Payment message sent successfully to {frm}, response: {response.text}")
         savesentlog(frm, response.text, response.status_code, "payment_link")
         return payment_url
-    except razorpay.errors.BadRequestError as e:
-        logging.error(f"Razorpay BadRequestError for user {frm}: {str(e)}")
-        return None
-    except requests.RequestException as e:
-        logging.error(f"Failed to send payment message to {frm}: {str(e)}, Response: {getattr(e.response, 'text', 'No response')}")
-        return None
     except Exception as e:
-        logging.error(f"Unexpected error in send_payment_message for user {frm}: {str(e)}")
+        logging.error(f"Failed to send payment message to {frm}: {str(e)}")
         return None
 
 def get_tiered_discount(user_phone):
@@ -725,7 +602,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
         delivery_date = (datetime.now() + timedelta(days=1)).date()
         for item in cart_items:
             combo_id, combo_name, quantity, price = item
-            is_available, _ = check_inventory(combo_id, quantity, pincode, delivery_date)
+            is_available, _ = check_inventory(combo_id, quantity, delivery_date)
             if not is_available:
                 return {"total": 0, "message": f"Error: {combo_name} is out of stock or insufficient quantity."}
             subtotal = float(price) * quantity
@@ -736,7 +613,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
                 (rcvr, name, combo_id, combo_name, float(price), quantity, subtotal, address, pincode, payment_method,
                  'Pending' if payment_method != 'COD' else 'Completed', 'Placed', reference_id, referral_code, delivery_date)
             )
-            update_inventory(combo_id, quantity, pincode, delivery_date)
+            update_inventory(combo_id, quantity, delivery_date)
             order_ids.append(cursor.lastrowid)
         
         discount_percentage = get_tiered_discount(rcvr)
@@ -764,16 +641,7 @@ def checkout(rcvr, name, address, pincode, payment_method, cnx, cursor, referenc
         return {"total": 0, "message": f"Error during checkout: {str(e)}. Please try again."}
 
 def check_pincode(pincode):
-    try:
-        cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
-        cursor = cnx.cursor()
-        cursor.execute("SELECT pincode FROM pincodes WHERE pincode = %s", (pincode,))
-        result = cursor.fetchone()
-        cnx.close()
-        return result is not None
-    except Exception as e:
-        logging.error(f"Pincode check failed: {e}")
-        return False
+    return pincode in SUPPORTED_PINCODES
 
 def get_combo_price(combo_id):
     try:
@@ -880,55 +748,20 @@ def get_cart_summary(phone, name, address=None):
         logging.error(f"Error in get_cart_summary for {phone}: {e}")
         return "Error retrieving order details. Please try again.", 0, 0
 
-def interactive_template_with_address_buttons(rcvr, body, message):
-    url = "https://apis.rmlconnect.net/wba/v1/messages?source=UI"
-    if not rcvr.startswith('+'):
-        rcvr = f"+91{rcvr.strip()[-10:]}"
-    payload = json.dumps({
-        "phone": rcvr,
-        "enable_acculync": False,
-        "extra": message,
-        "media": {
-            "type": "interactive_list",
-            "body": body,
-            "button_text": "Choose an Option",
-            "button": [
-                {
-                    "section_title": "Address Options",
-                    "row": [
-                        {
-                            "id": "6",
-                            "title": "Proceed",
-                            "description": "Continue with this address"
-                        }
-                    ]
-                },
-                {
-                    "section_title": "Change Address",
-                    "row": [
-                        {
-                            "id": "7",
-                            "title": "Enter New Address",
-                            "description": "Provide a new delivery address"
-                        }
-                    ]
-                }
-            ]
-        }
-    })
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': authkey,
-        'referer': 'https://myaccount.rmlconnect.net/'
-    }
+def savesentlog(frm, response, statuscode, Body):
     try:
-        response = requests.post(url, data=payload.encode('utf-8'), headers=headers, verify=False)
-        response.raise_for_status()
-        savesentlog(rcvr, response.text, response.status_code, "address_confirmation")
-        return response.text
-    except requests.RequestException as e:
-        logging.error(f"Interactive address buttons failed: {e}")
-        return None
+        response_data = json.loads(response) if response else {}
+        message_id = response_data.get("messages", [{}])[0].get("id", "unknown")
+        now = str(datetime.now())
+        add_data = "INSERT INTO tbl_logs(sender_id, timestamp1, message_id, status, messagebody) VALUES (%s, %s, %s, %s, %s)"
+        val = (str(frm), str(now), message_id, str(statuscode), Body)
+        cnx = pymysql.connect(user=usr, max_allowed_packet=1073741824, password=pas, host=aws_host, database=db)
+        cursor = cnx.cursor()
+        cursor.execute(add_data, val)
+        cnx.commit()
+        cnx.close()
+    except Exception as e:
+        logging.error(f"Failed to save log: {e}")
 
 # Admin Dashboard Routes
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -949,26 +782,23 @@ def admin_dashboard():
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
-        today = datetime.now().date()
-        tomorrow = today + timedelta(days=1)
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
         cursor.execute(
             "SELECT order_id, user_phone, customer_name, combo_name, quantity, total_amount, address, pincode, order_status, payment_status "
-            "FROM orders WHERE delivery_date IN (%s, %s)",
-            (today, tomorrow)
+            "FROM orders WHERE delivery_date = %s",
+            (tomorrow,)
         )
         orders = cursor.fetchall()
         cursor.execute(
-            "SELECT pincode, combo_id, combo_name, total_boxes, booked, remaining "
+            "SELECT combo_id, combo_name, total_boxes, booked, remaining "
             "FROM combo_inventory WHERE date = %s",
             (tomorrow,)
         )
         inventory = cursor.fetchall()
-        cursor.execute("SELECT pincode FROM pincodes")
-        pincodes = [row[0] for row in cursor.fetchall()]
         cursor.execute("SELECT combo_id, combo_name FROM combos")
         combos = cursor.fetchall()
         cnx.close()
-        return render_template('admin_dashboard.html', orders=orders, inventory=inventory, pincodes=pincodes, combos=combos)
+        return render_template('admin_dashboard.html', orders=orders, inventory=inventory, combos=combos)
     except Exception as e:
         logging.error(f"Admin dashboard error: {e}")
         return render_template('admin_dashboard.html', error=str(e))
@@ -978,18 +808,17 @@ def update_inventory_route():
     if not session.get('logged_in'):
         return redirect(url_for('admin_login'))
     try:
-        pincode = request.form.get('pincode')
-        combo_id = request.form.get('combo_id')
-        total_boxes = int(request.form.get('total_boxes'))
-        tomorrow = (datetime.now() + timedelta(days=1)).date()
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
-        combo_name = get_combo_name(combo_id)
-        cursor.execute(
-            "INSERT INTO combo_inventory (pincode, date, combo_id, combo_name, total_boxes, booked, remaining) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE total_boxes = %s, remaining = %s",
-            (pincode, tomorrow, combo_id, combo_name, total_boxes, 0, total_boxes, total_boxes, total_boxes)
-        )
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        for combo_id, combo_data in FALLBACK_COMBOS.items():
+            total_boxes = int(request.form.get(f'quantity_{combo_id}', 0))
+            combo_name = combo_data['name']
+            cursor.execute(
+                "INSERT INTO combo_inventory (date, combo_id, combo_name, total_boxes, booked, remaining) "
+                "VALUES (%s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE total_boxes = %s, remaining = remaining + (%s - total_boxes)",
+                (tomorrow, combo_id, combo_name, total_boxes, 0, total_boxes, total_boxes, total_boxes)
+            )
         cnx.commit()
         cnx.close()
         return redirect(url_for('admin_dashboard'))
@@ -1098,42 +927,21 @@ def Get_Message():
                 cnx.close()
                 return 'Success'
 
-            if resp1 in greeting_word:
-                if result is None:
-                    profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
-                    if profile_name and is_valid_name(profile_name):
-                        name = profile_name
-                        cursor.execute(
-                            "INSERT INTO users (phone_number, camp_id, is_valid, name, is_main, balutedaar_points) VALUES (%s, %s, %s, %s, %s, %s)",
-                            (frm, '1', '1', name, '1', 0)
-                        )
-                        cnx.commit()
-                        send_message(frm, wl.format(name=name), 'pincode')
-                    else:
-                        cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info, balutedaar_points) VALUES (%s, %s, %s, %s, %s)",
-                                      (frm, '1', '1', '1', 0))
-                        cnx.commit()
-                        send_message(frm, wl_fallback, 'welcome_message')
+            if resp1.lower() in greeting_word:
+                profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
+                if profile_name and is_valid_name(profile_name):
+                    name = profile_name
+                    cursor.execute(
+                        "INSERT INTO users (phone_number, camp_id, is_valid, name, is_main, balutedaar_points) VALUES (%s, %s, %s, %s, %s, %s)",
+                        (frm, '1', '1', name, '1', 0)
+                    )
+                    cnx.commit()
+                    send_message(frm, wl.format(name=name), 'pincode')
                 else:
-                    if name:
-                        reset_user_flags(frm, cnx, cursor)
-                        cursor.execute("UPDATE users SET is_main = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        send_message(frm, r2.format(name=name), 'pincode')
-                    else:
-                        profile_name = response.get("contacts", [{}])[0].get("profile", {}).get("name", "").strip()
-                        if profile_name and is_valid_name(profile_name):
-                            name = profile_name
-                            cursor.execute(
-                                "UPDATE users SET name = %s, is_main = %s, is_valid = %s WHERE phone_number = %s",
-                                (name, '1', '1', frm)
-                            )
-                            cnx.commit()
-                            send_message(frm, r2.format(name=name), 'pincode')
-                        else:
-                            cursor.execute("UPDATE users SET is_info = '1', is_valid = '1' WHERE phone_number = %s", (frm,))
-                            cnx.commit()
-                            send_message(frm, wl_fallback, 'welcome_message')
+                    cursor.execute("INSERT INTO users (phone_number, camp_id, is_valid, is_info, balutedaar_points) VALUES (%s, %s, %s, %s, %s)",
+                                  (frm, '1', '1', '1', 0))
+                    cnx.commit()
+                    send_message(frm, wl_fallback, 'welcome_message')
             
             if camp_id == '1':
                 if is_info == '1' and pincode is None:
@@ -1148,19 +956,15 @@ def Get_Message():
                 
                 if is_main == '1' and pincode is None:
                     pincode = resp1
-                    if pincode.isdigit() and len(pincode) == 6:
-                        if check_pincode(pincode):
-                            cursor.execute("UPDATE users SET pincode = %s, is_referral = %s, is_main = %s WHERE phone_number = %s",
-                                          (pincode, '1', '0', frm))
-                            cnx.commit()
-                            combo_list = get_combo_availability(pincode, (datetime.now() + timedelta(days=1)).date())
-                            send_message(frm, m1.format(date=(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'), combo_list=combo_list), 'combo_availability')
-                            send_referral_prompt_with_button(frm, referral_prompt, 'referral_code')
-                            send_multi_product_message(frm, CATALOG_ID, 'menu')
-                        else:
-                            send_message(frm, r3, 'pincode_error')
+                    if pincode.isdigit() and len(pincode) == 6 and check_pincode(pincode):
+                        cursor.execute("UPDATE users SET pincode = %s, is_referral = %s, is_main = %s WHERE phone_number = %s",
+                                      (pincode, '1', '0', frm))
+                        cnx.commit()
+                        combo_list = get_combo_availability((datetime.now() + timedelta(days=1)).date())
+                        send_message(frm, m1.format(date=(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'), combo_list=combo_list), 'combo_availability')
+                        send_referral_prompt_with_button(frm, referral_prompt, 'referral_code')
                     else:
-                        send_message(frm, r4, 'invalid_pincode')
+                        send_message(frm, r3 if pincode.isdigit() and len(pincode) == 6 else r4, 'pincode_error')
                 
                 if is_referral == '1':
                     if msg_type == 'interactive' and resp1 == 'skip_button':
@@ -1178,38 +982,7 @@ def Get_Message():
                         else:
                             send_referral_prompt_with_button(frm, invalid_referral.format(code=resp1), 'invalid_referral')
                 
-                if is_temp == '1' and address is None:
-                    if is_valid_address(resp1):
-                        address = resp1
-                        cursor.execute("UPDATE users SET address = %s, is_submenu = %s WHERE phone_number = %s", (address, '1', frm))
-                        cnx.commit()
-                        order_summary, total, item_count = get_cart_summary(frm, name, address)
-                        if item_count == 0:
-                            send_message(frm, order_summary, "no_order")
-                            send_multi_product_message(frm, CATALOG_ID, 'menu')
-                        else:
-                            order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
-                            interactive_template_with_2button(frm, order_summary, "order_summary")
-                    else:
-                        send_message(frm, invalid_address, 'invalid_address')
-                
-                elif is_temp == '1' and address is not None and is_submenu == '0':
-                    if resp1 == "6":
-                        cursor.execute("UPDATE users SET is_submenu = '1' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        order_summary, total, item_count = get_cart_summary(frm, name, address)
-                        if item_count == 0:
-                            send_message(frm, order_summary, "no_order")
-                            send_multi_product_message(frm, CATALOG_ID, 'menu')
-                        else:
-                            order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
-                            interactive_template_with_2button(frm, order_summary, "order_summary")
-                    elif resp1 == "7":
-                        cursor.execute("UPDATE users SET address = NULL, is_temp = '1' WHERE phone_number = %s", (frm,))
-                        cnx.commit()
-                        send_message(frm, m3, "ask_address")
-                
-                elif main_menu == '1' and msg_type == 'order':
+                if main_menu == '1' and msg_type == 'order':
                     if 'product_items' in response["messages"][0]["order"]:
                         product_items = response["messages"][0]["order"]["product_items"]
                         total_amount = 0
@@ -1220,7 +993,7 @@ def Get_Message():
                         for item in product_items:
                             combo_id = item.get("product_retailer_id", "").strip()
                             quantity = int(item.get("quantity", 1))
-                            is_available, combo_name = check_inventory(combo_id, quantity, pincode, delivery_date)
+                            is_available, combo_name = check_inventory(combo_id, quantity, delivery_date)
                             if not is_available:
                                 send_message(frm, out_of_stock.format(combo_name=combo_name), "out_of_stock")
                                 send_multi_product_message(frm, CATALOG_ID, 'menu')
@@ -1240,18 +1013,25 @@ def Get_Message():
                         if valid_selection:
                             cursor.execute("UPDATE users SET is_temp = '1' WHERE phone_number = %s", (frm,))
                             cnx.commit()
-                            cursor.execute("SELECT address FROM users WHERE phone_number = %s AND address IS NOT NULL", (frm,))
-                            previous_address = cursor.fetchone()
-                            if previous_address:
-                                address_message = f"Hi *{name}*, 👋\n\nWe have your previous address:\n📍 {previous_address[0]}\n\nWould you like to proceed with this address or enter a new one?"
-                                interactive_template_with_address_buttons(frm, address_message, "address_confirmation")
-                            else:
-                                send_message(frm, m3, "ask_address")
+                            send_message(frm, m3, "ask_address")
                         else:
                             send_multi_product_message(frm, CATALOG_ID, 'menu')
                             send_message(frm, "Sorry, none of the selected products are available. Please choose another combo.", "illegal_combo")
+                
+                if is_temp == '1' and address is None:
+                    if is_valid_address(resp1):
+                        address = resp1
+                        cursor.execute("UPDATE users SET address = %s, is_submenu = %s WHERE phone_number = %s", (address, '1', frm))
+                        cnx.commit()
+                        order_summary, total, item_count = get_cart_summary(frm, name, address)
+                        if item_count == 0:
+                            send_message(frm, order_summary, "no_order")
+                            send_multi_product_message(frm, CATALOG_ID, 'menu')
+                        else:
+                            order_summary += "\n\nPlease confirm your order or go back to the menu to make changes."
+                            interactive_template_with_2button(frm, order_summary, "order_summary")
                     else:
-                        send_multi_product_message(frm, CATALOG_ID, 'menu')
+                        send_message(frm, invalid_address, 'invalid_address')
                 
                 elif is_submenu == '1' and payment_method is None:
                     if resp1 == "1":
@@ -1282,7 +1062,7 @@ def Get_Message():
                             discount_percentage = get_tiered_discount(frm)
                             
                             if payment_method == "COD":
-                                reference_id = f"q9{uuid.uuid4().hex[:8]}"  # Generate reference_id for COD
+                                reference_id = f"q9{uuid.uuid4().hex[:8]}"
                                 checkout_result = checkout(frm, name, address, pincode, payment_method, cnx, cursor, reference_id)
                                 if checkout_result["total"] == 0:
                                     send_message(frm, checkout_result["message"], "invalid_order")
