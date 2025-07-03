@@ -135,26 +135,34 @@ def get_combo_availability(date):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor = cnx.cursor()
-        cursor.execute(
-            "SELECT combo_id, combo_name, total_boxes, remaining FROM combo_inventory WHERE date = %s",
-            (date,)
-        )
+        query = "SELECT combo_id, combo_name, total_boxes, remaining FROM combo_inventory WHERE date = %s"
+        formatted_date = date.strftime('%Y-%m-%d')
+        logging.info(f"Executing query: {query} with date {formatted_date}")
+        cursor.execute(query, (formatted_date,))
         inventory = cursor.fetchall()
-        logging.info(f"Fetched inventory for date {date}: {inventory}")
+        logging.info(f"Fetched inventory for date {formatted_date}: {inventory}")
         cnx.close()
-        if not inventory:
-            logging.warning(f"No inventory found for date {date}, returning fallback")
-            combo_list = [f"🥦 {combo_data['name']}: 0 boxes left" for combo_id, combo_data in FALLBACK_COMBOS.items()]
-            return "\n".join(combo_list)
+
+        # Initialize combo_list with all FALLBACK_COMBOS to ensure all are displayed
         combo_list = []
-        for combo_id, combo_name, total_boxes, remaining in inventory:
-            combo_list.append(f"🥦 {combo_name}: {remaining}/{total_boxes} boxes left")
+        combo_inventory_dict = {row[0]: row for row in inventory}  # Map combo_id to inventory row
+
+        for combo_id, combo_data in FALLBACK_COMBOS.items():
+            if combo_id in combo_inventory_dict:
+                combo_id, combo_name, total_boxes, remaining = combo_inventory_dict[combo_id]
+                combo_list.append(f"🥦 {combo_name}: {remaining}/{total_boxes} boxes left")
+            else:
+                combo_list.append(f"🥦 {combo_data['name']}: 0/0 boxes left")
+                logging.warning(f"No inventory found for combo_id {combo_id} on date {formatted_date}")
+
+        if not inventory:
+            logging.warning(f"No inventory records found for date {formatted_date}")
         return "\n".join(combo_list)
     except Exception as e:
-        logging.error(f"Failed to fetch combo availability for date {date}: {e}")
-        combo_list = [f"🥦 {combo_data['name']}: 0 boxes left" for combo_id, combo_data in FALLBACK_COMBOS.items()]
+        logging.error(f"Failed to fetch combo availability for date {formatted_date}: {e}")
+        combo_list = [f"🥦 {combo_data['name']}: 0/0 boxes left" for combo_id, combo_data in FALLBACK_COMBOS.items()]
         return "\n".join(combo_list)
-
+        
 def check_inventory(combo_id, quantity, date):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
@@ -964,6 +972,7 @@ def Get_Message():
                                       (pincode, '1', '0', frm))
                         cnx.commit()
                         tomorrow = (datetime.now() + timedelta(days=1)).date()
+                        logging.info(f"Fetching combo availability for date: {tomorrow}")
                         combo_list = get_combo_availability(tomorrow)
                         send_message(frm, m1.format(date=tomorrow.strftime('%Y-%m-%d'), combo_list=combo_list), 'combo_availability')
                         send_referral_prompt_with_button(frm, referral_prompt, 'referral_code')
