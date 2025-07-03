@@ -140,16 +140,19 @@ def get_combo_availability(date):
             (date,)
         )
         inventory = cursor.fetchall()
+        logging.info(f"Fetched inventory for date {date}: {inventory}")
         cnx.close()
+        if not inventory:
+            logging.warning(f"No inventory found for date {date}, returning fallback")
+            combo_list = [f"🥦 {combo_data['name']}: 0 boxes left" for combo_id, combo_data in FALLBACK_COMBOS.items()]
+            return "\n".join(combo_list)
         combo_list = []
         for combo_id, combo_name, total_boxes, remaining in inventory:
             combo_list.append(f"🥦 {combo_name}: {remaining}/{total_boxes} boxes left")
-        return "\n".join(combo_list) if combo_list else "No combos available."
+        return "\n".join(combo_list)
     except Exception as e:
-        logging.error(f"Failed to fetch combo availability: {e}")
-        combo_list = []
-        for combo_id, combo_data in FALLBACK_COMBOS.items():
-            combo_list.append(f"🥦 {combo_data['name']}: 0 boxes left")
+        logging.error(f"Failed to fetch combo availability for date {date}: {e}")
+        combo_list = [f"🥦 {combo_data['name']}: 0 boxes left" for combo_id, combo_data in FALLBACK_COMBOS.items()]
         return "\n".join(combo_list)
 
 def check_inventory(combo_id, quantity, date):
@@ -172,7 +175,7 @@ def check_inventory(combo_id, quantity, date):
 def update_inventory(combo_id, quantity, date):
     try:
         cnx = pymysql.connect(user=usr, password=pas, host=aws_host, database=db)
-        cursor = cnx.cursor()
+        cursor = c jsemysql.connect(user=usr, password=pas, host=aws_host, database=db)
         cursor.execute(
             "UPDATE combo_inventory SET booked = booked + %s, remaining = remaining - %s WHERE date = %s AND combo_id = %s",
             (quantity, quantity, date, combo_id)
@@ -960,8 +963,9 @@ def Get_Message():
                         cursor.execute("UPDATE users SET pincode = %s, is_referral = %s, is_main = %s WHERE phone_number = %s",
                                       (pincode, '1', '0', frm))
                         cnx.commit()
-                        combo_list = get_combo_availability((datetime.now() + timedelta(days=1)).date())
-                        send_message(frm, m1.format(date=(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'), combo_list=combo_list), 'combo_availability')
+                        tomorrow = (datetime.now() + timedelta(days=1)).date()
+                        combo_list = get_combo_availability(tomorrow)
+                        send_message(frm, m1.format(date=tomorrow.strftime('%Y-%m-%d'), combo_list=combo_list), 'combo_availability')
                         send_referral_prompt_with_button(frm, referral_prompt, 'referral_code')
                     else:
                         send_message(frm, r3 if pincode.isdigit() and len(pincode) == 6 else r4, 'pincode_error')
