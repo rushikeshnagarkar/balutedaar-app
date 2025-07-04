@@ -138,16 +138,18 @@ def get_combo_availability():
         cursor.execute("SELECT combo_id, combo_name, total_boxes FROM combo_inventory")
         inventory = cursor.fetchall()
         cnx.close()
-        combo_list = []
+        message = "🌱 *Fresh Greens Await!* 🌱\nDive into our vibrant combos:\n\n"
         for combo_id, combo_name, total_boxes in inventory:
-            combo_list.append(f"🥦 {combo_name}: {total_boxes} boxes left")
-        return "\n".join(combo_list) if combo_list else "No combos available."
+            message += f"🥗 *{combo_name}* - {total_boxes} boxes ready!\n"
+        message += "\n🌟 Pick your favorite and order now! 🌟"
+        return message if inventory else "No combos available."
     except Exception as e:
         logging.error(f"Failed to fetch combo availability: {e}")
-        combo_list = []
+        message = "🌱 *Fresh Greens Await!* 🌱\nDive into our vibrant combos:\n\n"
         for combo_id, combo_data in FALLBACK_COMBOS.items():
-            combo_list.append(f"🥦 {combo_data['name']}: 0 boxes left")
-        return "\n".join(combo_list)
+            message += f"🥗 *{combo_data['name']}* - 0 boxes ready!\n"
+        message += "\n🌟 Pick your favorite and order now! 🌟"
+        return message
 
 def check_inventory(combo_id, quantity):
     try:
