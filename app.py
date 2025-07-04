@@ -365,7 +365,7 @@ def savesentlog(frm, response, statuscode, Body):
         cursor.execute(add_data, val)
         cnx.commit()
         cnx.close()
-    except Exception fore as e:
+    except Exception as e:
         logging.error(f"Failed to save log: {e}")
 
 def interactive_template_with_2button(rcvr, body, message):
